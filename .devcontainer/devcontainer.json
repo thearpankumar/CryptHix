@@ -1,0 +1,26 @@
+{
+  "name": "CryptHix",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "latest"
+    },
+    "ghcr.io/coder/devcontainer-features/code-server:1": {
+      "host": "0.0.0.0",
+      "port": "8080",
+      "auth": "password",
+      "workspace": "/workspaces/CryptHix",
+      "disableTelemetry": true
+    }
+  },
+  "appPort": ["127.0.0.1:8080:8080"],
+  "postCreateCommand": "rustup update stable && rustup default stable && code-server --install-extension rust-lang.rust-analyzer --install-extension ms-python.python && rustc --version && python --version",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "ms-python.python"
+      ]
+    }
+  }
+}
