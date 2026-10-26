@@ -11,6 +11,5 @@ Bio-Inspired Confidential Computing
 - detect tampering
 - repair
 
-while everything stays encrypted?```
-
+while everything stays encrypted?
 > an integrity and recovery layer that co-evolves with encrypted data instead of assuming static objects
