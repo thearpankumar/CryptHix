@@ -1,0 +1,18 @@
+[package]
+name = "crypthix-cli"
+description = "The crypthix command-line interface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "crypthix"
+path = "src/main.rs"

@@ -1,0 +1,46 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# The allow list is policy for future dependencies, not a list of current ones.
+unused-allowed-license = "allow"
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# Dependency rule 3: only crypthix-crypto may import cryptography crates.
+deny = [
+    { crate = "aes-gcm", wrappers = ["crypthix-crypto"] },
+    { crate = "argon2", wrappers = ["crypthix-crypto"] },
+    { crate = "aws-lc-rs", wrappers = ["crypthix-crypto"] },
+    { crate = "blake3", wrappers = ["crypthix-crypto"] },
+    { crate = "chacha20poly1305", wrappers = ["crypthix-crypto"] },
+    { crate = "ed25519-dalek", wrappers = ["crypthix-crypto"] },
+    { crate = "hkdf", wrappers = ["crypthix-crypto"] },
+    { crate = "ml-kem", wrappers = ["crypthix-crypto"] },
+    { crate = "sha2", wrappers = ["crypthix-crypto"] },
+    { crate = "vsss-rs", wrappers = ["crypthix-crypto"] },
+    { crate = "x25519-dalek", wrappers = ["crypthix-crypto"] },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,3 @@
+doc-valid-idents = ["CryptHix", "RabbitMQ", "WinFsp", "FSKit", "BPF-LSM", ".."]
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

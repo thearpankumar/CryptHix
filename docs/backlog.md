@@ -8,7 +8,7 @@ Tick a box when the feature is merged, tested and documented. CLI commands and V
 
 ## Phase 0: Foundations
 
-- [ ] **Cargo workspace skeleton** — Repo as one Cargo workspace using the grouped layout at the end of this file (`crates/<group>/<crate>`, `apps/`, `extensions/`), shared lints and dependency versions, `rust-toolchain.toml`, licence, CI (build, test, clippy, fmt, `cargo-deny`, layer-rule check). `workspace root`
+- [x] **Cargo workspace skeleton** — Repo as one Cargo workspace using the grouped layout at the end of this file (`crates/<group>/<crate>`, `apps/`, `extensions/`), shared lints and dependency versions, `rust-toolchain.toml`, licence, CI (build, test, clippy, fmt, `cargo-deny`, layer-rule check). `workspace root`
 - [ ] **Threat model document** — Attackers, assets, trust boundaries and what each phase defends, based on vision.md section 8. `docs/`
 - [ ] **On-disk format spec v0** — Manifest, shard, key-file and log-entry formats with version fields and a test-vector plan. `docs/`
 - [ ] **Shared types and errors** — IDs (object, shard, epoch, device), error types, config loading, versioned serialization, cross-crate traits (`Backend`, `KeyProvider`, `EventSink`, `ResponseActions`). `foundation/crypthix-types`

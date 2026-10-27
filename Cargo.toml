@@ -1,0 +1,61 @@
+[workspace]
+resolver = "3"
+members = ["crates/*/*", "apps/*", "xtask"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+repository = "https://github.com/thearpankumar/CryptHix"
+publish = false
+
+[workspace.dependencies]
+# Internal crates, grouped by layer (see docs/backlog.md#architecture-rules).
+crypthix-types = { path = "crates/foundation/types" }
+crypthix-crypto = { path = "crates/foundation/crypto" }
+crypthix-bus = { path = "crates/foundation/bus" }
+crypthix-core = { path = "crates/engine/core" }
+crypthix-keys = { path = "crates/engine/keys" }
+crypthix-tokens = { path = "crates/engine/tokens" }
+crypthix-store = { path = "crates/engine/store" }
+crypthix-log = { path = "crates/engine/log" }
+crypthix-snapshot = { path = "crates/engine/snapshot" }
+crypthix-metabolism = { path = "crates/engine/metabolism" }
+crypthix-guard = { path = "crates/security/guard" }
+crypthix-hardening = { path = "crates/security/hardening" }
+crypthix-sync = { path = "crates/sync/sync" }
+crypthix-git = { path = "crates/sync/git" }
+crypthix-policy = { path = "crates/access/policy" }
+crypthix-fs = { path = "crates/access/fs" }
+crypthix-api = { path = "crates/access/api" }
+crypthix-gateway = { path = "crates/access/gateway" }
+
+# External crates.
+cargo_metadata = "0.23"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+# Denied, not forbidden: crypthix-crypto, crypthix-hardening and crypthix-fs
+# may opt in with a module-level `#[allow(unsafe_code)]` and SAFETY comments.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Google Rust style guide alignment (docs/style-guide.md).
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"
+wildcard_imports = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+module_name_repetitions = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

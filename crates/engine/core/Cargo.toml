@@ -1,0 +1,12 @@
+[package]
+name = "crypthix-core"
+description = "Write and read pipeline: chunk, compress, pad, encrypt, hash and sign."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

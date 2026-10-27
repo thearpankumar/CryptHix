@@ -1,3 +1,25 @@
+# ---- Rust (github/gitignore Rust.gitignore) ----
+# Cargo.lock is committed on purpose: this workspace ships binaries.
+/debug/
+/target/
+
+# rustfmt backup files
+**/*.rs.bk
+
+# MSVC debug info
+*.pdb
+
+# cargo-mutants output
+**/mutants.out*/
+
+# rustc internal compiler error dumps
+rustc-ice-*.txt
+
+# cargo-fuzz crash artifacts and coverage (corpus stays tracked)
+/tests/fuzz/artifacts/
+/tests/fuzz/coverage/
+
+# ---- Python ----
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
