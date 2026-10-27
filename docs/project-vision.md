@@ -925,7 +925,7 @@ Dates are estimates, not commitments.
 ## 18. Open questions
 
 1. **RabbitMQ:** is the message-broker reading in 6.5 correct, or did you mean something else (for example the Rabbit stream cipher)?
-2. **Name and licence:** keep "CryptHix"? Apache-2.0, MPL-2.0 or AGPL?
+2. **Name and licence:** keep "CryptHix"? *Licence decided (2026-10-28): dual licensing, AGPL-3.0 plus a commercial licence (see [COMMERCIAL.md](COMMERCIAL.md)).*
 3. **Repository:** create a GitHub repo (for example `thearpankumar/crypthix`) so work can start.
 4. **Business model:** fully free, or open core with paid team features (U6, M2) and hosted backups?
 5. **Default root scheme:** passphrase + TPM + second device (2-of-3), or passphrase only for the alpha?

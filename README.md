@@ -5,7 +5,8 @@
 **A self-healing, self-rotating encrypted workspace.**
 Your editors, compilers and AI tools work on it unchanged. Thieves, malware and nosy AI agents get ciphertext.
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Commercial license available](https://img.shields.io/badge/commercial%20license-available-purple.svg)](docs/COMMERCIAL.md)
 [![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha%20%2F%20design-orange.svg)](docs/project-vision.md#14-roadmap)
 [![Rust: stable](https://img.shields.io/badge/rust-stable-b7410e.svg?logo=rust)](https://www.rust-lang.org)
 [![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational.svg?logo=linux&logoColor=white)](#roadmap)
@@ -135,7 +136,7 @@ Researched in October 2026. "Partial" means the feature exists in a limited form
 
 | Capability | Cryptomator, gocryptfs, CryFS | VeraCrypt, LUKS, BitLocker | Tresorit, Proton Drive | Thales CipherTrust (CTE) | restic, Borg | Storj, Tahoe-LAFS | AI agent hooks (Arcjet, HOL Guard, Failproof AI) | **CryptHix** |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Open source | Yes | Yes | Partial [1] | No | Yes | Yes | Partial | **Yes (Apache-2.0)** |
+| Open source | Yes | Yes | Partial [1] | No | Yes | Yes | Partial | **Yes (AGPL-3.0, commercial licence available)** |
 | Unmodified apps work on the data | Yes | Yes | Yes (sync folder) | Yes | No (backup tool) | No (object storage) | Not applicable | **Yes** |
 | Per-program access control | No | No | No | Yes | No | No | Agent tools only [2] | **Yes** |
 | Blocks AI agents from secrets at the file layer | No | No | No | No agent profiles | No | No | Partial [2] | **Yes** |
@@ -219,7 +220,12 @@ code-server listens on <http://127.0.0.1:8080>. The login password is in `~/.con
 
 ## License
 
-[Apache License 2.0](LICENSE)
+CryptHix is dual-licensed.
+
+- **Open source: [GNU AGPL-3.0](LICENSE).** Free for everyone, including companies, as long as you follow the AGPL: keep the copyright and licence notices that credit this project, and if you modify CryptHix or offer it to others over a network, publish your full source under the AGPL too.
+- **Commercial licence.** If you want to use CryptHix in a closed-source product or service, or without the AGPL's source-sharing obligations, you need a commercial licence. See [COMMERCIAL.md](docs/COMMERCIAL.md) or email **arpankumar1119@gmail.com**.
+
+Contributions are accepted under a Contributor License Agreement so the project can keep offering both licences. See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## Sources
 
