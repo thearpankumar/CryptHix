@@ -150,7 +150,7 @@ flowchart TB
 
 ### 5.2 Daemon components and crates
 
-One process, `crypthixd`, runs per user and wires together library crates grouped by domain. The full layout, layer rules and dependency rules live in [backlog.md](backlog.md#architecture-rules).
+One `crypthixd` process serves each human user and wires together library crates grouped by domain. It runs as a dedicated system user, with a small root helper that mounts the vault, loads BPF-LSM and reports caller identity, so malware running as the human user cannot read its memory or delete its store ([threat model 3.1](threat-model.md#31-daemon-model)). The full layout, layer rules and dependency rules live in [backlog.md](backlog.md#architecture-rules).
 
 | Group | Crate | Responsibility | Talks to |
 | --- | --- | --- | --- |
@@ -298,6 +298,8 @@ mass_read_files_per_min = 300
 freeze_on_canary = true
 ```
 
+Paths in this example are shorthand. The policy engine matches programs by executable identity, not path, and interpreter grants such as `python3` and `node` above apply only to interactive runs in that project, never inside package-manager scripts ([threat model M-3, M-25](threat-model.md#111-new-mitigations-design-requirements)).
+
 ### 5.7 Guard and attack response
 
 ```mermaid
@@ -375,7 +377,7 @@ sequenceDiagram
     A->>S: fetch wrapped e3 KEK, unwrap
     A->>A: new writes use e3, re-encryption jobs queued
     A->>RMQ: publish repair/re-encrypt progress
-    Note over A,S: When all chunks move to e3 and the grace period ends,<br/>e2 is retired and B's old copies become useless
+    Note over A,S: When all chunks move to e3 and the grace period ends,<br/>e2 is retired; B's old copies become useless once<br/>retention windows expire (threat model T-87)
 ```
 
 Event types on the bus:
@@ -621,18 +623,20 @@ Each scenario below shows several features cooperating.
 
 ## 8. Threat model
 
+This table is a summary. Assets, trust boundaries, every threat, the mitigations and what each phase defends are in [threat-model.md](threat-model.md).
+
 | Attacker | Example | Defended by | Residual risk |
 | --- | --- | --- | --- |
 | Disk or laptop thief | Stolen laptop, discarded drive | E4, E6, O3, U9, E8 | Weak passphrase with no TPM |
 | Untrusted program as the same user | Infostealer, fake tool in `~/Downloads` | A2, A4, A6, O4 | Programs the user wrongly allows |
 | Malicious dependency inside an allowed program | `postinstall.js` under `node` | Per-path rules, A6–A8 | Can read what `node` may read in that project |
-| AI coding agent | Agent reads `.env` and sends it to a remote | U1 agent profiles | Secrets the user forgot to mark private |
+| AI coding agent | Agent reads `.env` and sends it to a remote | U1 agent profiles | Secrets the user forgot to mark private; agents that leave the process tree (detection is best effort) |
 | Ransomware | Mass encryption of files | A7, A8, E11, U3, O4 | Files changed before freeze (restored by rollback) |
 | Cloud or backup provider | Provider reads or loses data | Ciphertext only, E9, U8 | Metadata such as shard count and timing |
 | Network / git host | GitHub reads repo | U4 | Repo size and push timing |
 | Old key leak | Backup of an old key found later | E8 retirement | Data from before retirement completed |
 | Removed member or contractor | Keeps a copy | U6, E8, E14 | Plaintext they copied while they had access |
-| Malware abusing CryptHix itself | Runs `crypthix policy allow` or `snapshot delete` | A14 user presence, E17 time-locked deletion, S7 signal | User approving a fake prompt |
+| Malware abusing CryptHix itself | Runs `crypthix policy allow` or `snapshot delete` | A14 user presence, E17 time-locked deletion, S7 signal | User approving a fake prompt; stopping the daemon (denial of service) |
 | Malicious or compromised backend | Serves an old vault version or altered shards; deletes backups | E5 signatures, E18 anti-rollback, E19 immutable copies, U8 redundancy | Availability if all backends fail together |
 | Compromised broker | Forged rotation, hidden alert | M3 signed events, log head comparison | Delay or drop of events |
 | Root malware / hostile OS | Kernel rootkit | O2–O5 raise the bar; O7 for real protection | Can eventually read memory without O7 |
@@ -665,7 +669,7 @@ Manifest {
 ```text
 Shard { shard_id = hash(contents), object_id, chunk_index, shard_index, payload }
 ```
-Shards are named by hash, so backends see random-looking names and sizes from a few buckets.
+Shards are named by hash, so backends see random-looking names and sizes from a few buckets. Shard headers and manifests must be encrypted apart from routing fields, or chunk boundaries fingerprint file contents ([threat model T-84](threat-model.md#75-cryptography-and-formats)).
 
 ### 9.3 Genome log entry
 
@@ -691,6 +695,8 @@ LogEntry {
   log/             genome log segments
   snapshots/       snapshot roots
   keys/            wrapped key material, never plaintext
+# Planned: store and config owned by the daemon's own system user
+# (threat model M-15); paths move in the format spec.
 ~/.config/crypthix/
   policy.toml      access rules and agent profiles
   backends.toml    disks, S3, Drive, Dropbox, git remotes
@@ -876,10 +882,10 @@ Dates are estimates, not commitments.
 | Crypto and formats | Known-answer test vectors, property tests, `cargo-fuzz` on every parser |
 | Rotation safety | Crash-injection tests mid re-encryption; proof test that a retired key decrypts nothing |
 | Durability | Chaos tests that delete and corrupt random shards and backends |
-| Access policy | Test matrix of programs × paths × agent trees; attempted bypasses (symlinks, hard links, renames, `/proc` tricks) |
+| Access policy | Test matrix of programs × paths × agent trees; attempted bypasses (symlinks, hard links, renames, `/proc` tricks, descriptor passing, mmap and page-cache reuse, PID reuse) |
 | Guard | Replay recorded infostealer, exfiltration and ransomware behaviour; measure false positives on real developer workloads |
 | Hardening | Attempts to `ptrace`, inject into, or read memory of allowed apps; direct shard reads; malware calling CryptHix admin commands without user presence |
-| Restore | Full disaster-recovery drill on a clean machine; point-in-time restores; rollback-attack tests with a backend serving old shards; cloud deletion attempts against Object Lock |
+| Restore | Full disaster-recovery drill on a clean machine; point-in-time restores; rollback, freeze and fork tests with a backend serving old shards; cloud deletion attempts against Object Lock |
 | Performance | Build benchmarks vs plain disk and gocryptfs; FUSE passthrough where available |
 | Release | Reproducible builds, signed releases, external audit before 1.0 |
 
@@ -919,6 +925,10 @@ Dates are estimates, not commitments.
 - **FUSE adds overhead**; FUSE passthrough (Linux 6.9+) helps.
 - **Metadata leaks remain**: number of shards, timing and approximate sizes.
 - **Unaudited crypto is experimental.** No production use before the 1.0 audit.
+- **Allowing an interpreter allows any code it runs.** An allowed `python3`, `node` or `git` also runs `python3 -c`, npm scripts and git hooks.
+- **AI agent detection is best effort.** A determined agent can leave its process tree; assistants running inside the editor may not be distinguishable.
+- **Secrets outside the vault are not protected**: environment variables, shell history, clipboard.
+- **Same-user protection depends on BPF-LSM.** Without it (stock Ubuntu today) CryptHix runs in a degraded mode where injection into allowed programs is possible; firmware TPMs can be fault-attacked. See [threat model 12](threat-model.md#12-what-each-phase-defends).
 
 ---
 
@@ -929,6 +939,7 @@ Dates are estimates, not commitments.
 3. **Repository:** create a GitHub repo (for example `thearpankumar/crypthix`) so work can start.
 4. **Business model:** fully free, or open core with paid team features (U6, M2) and hosted backups?
 5. **Default root scheme:** passphrase + TPM + second device (2-of-3), or passphrase only for the alpha?
+6. **Threat-model questions:** anti-rollback counter location, `path_hash` rotation, namespaced callers, in-editor agents, default AEAD and the unphishable presence flow are tracked in [threat-model.md](threat-model.md#14-open-questions).
 
 ---
 

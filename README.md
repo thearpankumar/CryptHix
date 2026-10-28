@@ -216,6 +216,7 @@ code-server listens on <http://127.0.0.1:8080>. The login password is in `~/.con
 ## Documentation
 
 - [Product vision](docs/project-vision.md): architecture, threat model, data formats and interfaces
+- [Threat model](docs/threat-model.md): assets, adversaries, trust boundaries, threats and what each phase defends
 - [Backlog](docs/backlog.md): features in implementation order and the crate layout rules
 
 ## License
