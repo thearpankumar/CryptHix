@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs the pre-commit checks in xtask/src/pre_commit.rs: file hygiene, secrets (gitleaks),
+# formatting and lint. Plain POSIX sh, so Git for Windows' bundled sh, macOS and Linux all run it.
+# Enable once per clone with `cargo xtask install-hooks`; skip once with `git commit --no-verify`.
+exec cargo xtask pre-commit

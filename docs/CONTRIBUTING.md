@@ -10,7 +10,7 @@ A CLA bot will ask you to sign when you open your first pull request. Pull reque
 
 ## Before you open a pull request
 
-Follow the [Rust style guide](style-guide.md) and run the local checks:
+Follow the [Rust style guide](style-guide.md). Enable the pre-commit hook once with `cargo xtask install-hooks` (it needs [gitleaks](https://github.com/gitleaks/gitleaks)), and run the local checks before pushing:
 
 ```bash
 cargo fmt --all

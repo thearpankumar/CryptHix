@@ -1,11 +1,14 @@
-//! Repository automation: architecture layer checks.
+//! Repository automation: architecture layer checks and git hooks.
 //!
-//! Run with `cargo xtask check-layers`.
+//! - `cargo xtask check-layers` checks crate dependencies against the layer rules.
+//! - `cargo xtask pre-commit` runs the pre-commit checks on the staged changes.
+//! - `cargo xtask install-hooks` enables the hooks in `.githooks/` for this clone.
 
 // Printing a report is this tool's job; the print lints target library code.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod layers;
+mod pre_commit;
 
 use std::collections::HashMap;
 use std::env;
@@ -16,11 +19,14 @@ use cargo_metadata::{DependencyKind, MetadataCommand};
 use crate::layers::Placement;
 
 fn main() -> ExitCode {
-    if env::args().nth(1).as_deref() == Some("check-layers") {
-        check_layers()
-    } else {
-        eprintln!("usage: cargo xtask check-layers");
-        ExitCode::FAILURE
+    match env::args().nth(1).as_deref() {
+        Some("check-layers") => check_layers(),
+        Some("pre-commit") => pre_commit::run(),
+        Some("install-hooks") => pre_commit::install(),
+        _ => {
+            eprintln!("usage: cargo xtask <check-layers | pre-commit | install-hooks>");
+            ExitCode::FAILURE
+        }
     }
 }
 

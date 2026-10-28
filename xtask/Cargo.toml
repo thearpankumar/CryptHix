@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository automation: architecture layer checks."
+description = "Repository automation: architecture layer checks and git hooks."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

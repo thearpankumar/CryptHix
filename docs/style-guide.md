@@ -24,7 +24,11 @@ The API design rules are **binding for library crates** (everything under `crate
 | Clippy config | `clippy.toml` | Project words accepted in docs; `unwrap`/`expect` allowed in tests |
 | Layer check | `cargo xtask check-layers` | Crate dependency rules from [backlog.md](backlog.md#architecture-rules) |
 | cargo-deny | `deny.toml` | Licences, advisories, sources, and "only `crypthix-crypto` imports crypto crates" |
+| Pre-commit hook | `.githooks/pre-commit`, `xtask/src/pre_commit.rs` | File hygiene, secrets (gitleaks), formatting and Clippy on staged changes |
+| Line endings | `.gitattributes` | LF in the repository on every platform |
 | CI | `.github/workflows/ci.yml` | Runs all of the above with warnings as errors |
+
+Enable the pre-commit hook once per clone with `cargo xtask install-hooks`. On every commit it checks the staged changes for file hygiene (trailing whitespace, conflict markers, a final newline, files over 1 MiB), secrets ([gitleaks](https://github.com/gitleaks/gitleaks), installed with `go install github.com/zricethezav/gitleaks/v8@v8.30.1`), formatting and Clippy. The checks are written in Rust (`xtask/src/pre_commit.rs`) and the hook is one line of POSIX `sh`, so they run the same on Linux, macOS and Windows (Git for Windows' bundled shell).
 
 Run everything locally before pushing:
 
