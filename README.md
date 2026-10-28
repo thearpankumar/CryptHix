@@ -85,7 +85,7 @@ flowchart TB
     KEYS & META & GUARD --> LOG
 ```
 
-Every write goes through a fixed pipeline: **chunk (FastCDC) → compress (zstd) → pad → encrypt (XChaCha20-Poly1305) → Reed-Solomon shards → Merkle hash and Ed25519-signed manifest**. Backends only ever see ciphertext, and a read still succeeds when shards are lost, while a repair job rebuilds them.
+Every write goes through a fixed pipeline: **chunk (FastCDC) → compress (zstd) → pad → encrypt (XChaCha20-Poly1305) → pack → Reed-Solomon shards → Merkle hash and Ed25519-signed manifest**. Backends only ever see ciphertext, and a read still succeeds when shards are lost, while a repair job rebuilds them.
 
 | Biology | CryptHix |
 | --- | --- |
@@ -170,10 +170,10 @@ No single tool today combines these. CryptHix aims to be the **only open-source 
 
 | Purpose | Choice |
 | --- | --- |
-| Chunk encryption | XChaCha20-Poly1305 or AES-256-GCM |
-| Key derivation / passphrase | HKDF-SHA256 / Argon2id |
-| Hashing and signatures | BLAKE3 or SHA-256 Merkle trees, Ed25519 |
-| Key wrapping | Hybrid X25519 + ML-KEM-768 (post-quantum) |
+| Chunk encryption | XChaCha20-Poly1305 with key commitment |
+| Key derivation / passphrase | HKDF-SHA-256 / Argon2id |
+| Hashing and signatures | BLAKE3 Merkle trees, Ed25519 with one signing key per device |
+| Key wrapping | X-Wing hybrid X25519 + ML-KEM-768 (post-quantum) |
 | Root key | Shamir t-of-n shares (passphrase, TPM, second device) |
 | Durability | Reed-Solomon erasure coding |
 
@@ -217,6 +217,7 @@ code-server listens on <http://127.0.0.1:8080>. The login password is in `~/.con
 
 - [Product vision](docs/project-vision.md): architecture, threat model, data formats and interfaces
 - [Threat model](docs/threat-model.md): assets, adversaries, trust boundaries, threats and what each phase defends
+- [On-disk format spec](docs/format-spec.md): key files, packs, shards, manifests, the signed vault root and the test-vector plan
 - [Backlog](docs/backlog.md): features in implementation order and the crate layout rules
 
 ## License

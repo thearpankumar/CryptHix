@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| Status | v0.2, Phase 0 baseline after persona review, pre-code |
+| Status | v0.3, Phase 0 baseline after persona review and the format spec, pre-code |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Covers | Phases 1–4 in detail, Phase 5 in outline ([roadmap](project-vision.md#14-roadmap)) |
 | Next review | End of Phase 1 (see [section 15](#15-did-we-do-a-good-job)) |
-| Related | [Vision section 8](project-vision.md#8-threat-model) (summary) · [Backlog](backlog.md) · [Style guide](style-guide.md) |
+| Related | [Vision section 8](project-vision.md#8-threat-model) (summary) · [Backlog](backlog.md) · [Format spec](format-spec.md) · [Style guide](style-guide.md) |
 
 ## Contents
 
@@ -121,7 +121,7 @@ Decided for this threat model (2026-10-29): **`crypthixd` runs as its own system
 - Inside the daemon, key material sits in a small key-holder process, separate from the FUSE and API code that parses untrusted input (M-29, T-74).
 - The per-user parts are thin clients: the CLI, the VS Code extension and the prompt UI. They talk to the daemon over the API socket.
 
-This replaces the per-user daemon and the `~/.config/crypthix` and `~/.local/share/crypthix` paths in [vision sections 5.2 and 9.4](project-vision.md#94-directory-layout). The vision keeps its paths as the user-facing view until the format spec lands.
+This replaces the per-user daemon and the old per-user paths in the first vision draft. The layout is in [format spec 18](format-spec.md#18-directory-layout).
 
 ### 3.2 Hardening modes
 
@@ -287,7 +287,7 @@ If an assumption fails, the properties that depend on it fail too. Section 6 nam
 | --- | --- |
 | AS-1 | The kernel, root and firmware are not compromised (ADV-15 is out of scope). The IOMMU is on. |
 | AS-2 | One human per UID, and that human is not the adversary. |
-| AS-3 | The audited primitives and crates (XChaCha20-Poly1305, AES-256-GCM, HKDF-SHA256, Argon2id, Ed25519, X25519, ML-KEM-768, BLAKE3, SHA-256) and the kernel random number generator (`getrandom`) are correct and unbroken. No user-space RNG is used for keys or nonces (M-36). |
+| AS-3 | The audited primitives and crates (XChaCha20-Poly1305, HKDF-SHA256, Argon2id, Ed25519, X25519, ML-KEM-768, BLAKE3, SHA-256) and the kernel random number generator (`getrandom`) are correct and unbroken. No user-space RNG is used for keys or nonces (M-36). |
 | AS-4 | The daemon's per-request UID check (M-15) is correct. Other UIDs reach the mount at all only because it uses `allow_other` (see 3.1). |
 | AS-5 | The user reads a prompt before answering it. Prompt fatigue weakens this (T-11). |
 | AS-6 | Swap is encrypted or off, and hibernation images are encrypted. If not, A9 warns and SP-B6 and SP-B7 are downgraded. `memfd_secret` blocks hibernation while it holds keys, so M-11 drops them first. |
@@ -330,12 +330,12 @@ Two tiers, following the Keybase KBFS split:
 | --- | --- | --- | --- |
 | SP-C1 | Contents are confidential at rest and on every backend | P1 | Root threshold reached (section 9); host compromised while unlocked |
 | SP-C2 | Each object's integrity and authenticity is checked (AEAD tag, signed manifest); tampering returns an error, never wrong plaintext | P1 | Signing key stolen (T-34) |
-| SP-C3 | Chunks and objects cannot be swapped, reordered, truncated, replayed from another version or spliced from another vault (M-8) | P1, once the format includes full AAD | AAD incomplete (T-35) |
+| SP-C3 | Chunks and objects cannot be swapped, reordered, truncated, replayed from another version or spliced from another vault (M-8) | P1 ([format spec](format-spec.md#2-goals-leakage-and-limits): chunk AAD plus the signed manifest) | AAD incomplete (T-35) |
 | SP-C4 | Key commitment: a ciphertext opens under only one key (M-9) | P1 format; matters from P4 | Not adopted |
-| SP-C5 | Freshness: rollback, freeze and mix-and-match are detected; forks are detected when devices compare log heads (fork consistency) | **P4** (E18) | All devices offline and no published head (AS-7) |
-| SP-C6 | Retirement: a retired epoch's keys decrypt nothing still stored | **P4** (E8) | Snapshots still pin the old epoch; old ciphertext and wrapped keys survive inside a retention window (T-87); KEKs can be re-derived from the root unless M-34 holds (T-79) |
+| SP-C5 | Freshness: rollback, freeze and mix-and-match are detected; forks are detected when devices compare log heads (fork consistency) | Per-device monotonicity in P1 (`root_seq`); full in **P4** (E18) | All devices offline and no published head (AS-7); a device with no state in P1 |
+| SP-C6 | Retirement: a retired epoch's keys decrypt nothing still stored | **P4** (E8) | Snapshots still pin the old epoch; old ciphertext and wrapped keys survive inside a retention window (T-87); KEKs can be re-derived from the root unless M-34 holds (T-79); kept key files plus a later root compromise, unless the root is rotated |
 | SP-C7 | The genome log is tamper-evident (hash chain, signatures, per-device keys M-14) | P3 (E12) | Signing key stolen; rollback before E18 |
-| SP-C8 | Recovering the root needs t of n shares | P4 (U7); before that the passphrase alone | A share is weak or extractable (T-25, T-28); device-key path (T-32) without M-14 |
+| SP-C8 | Recovering the root needs t of n shares | P4 (U7); before that the passphrase alone, or the printed recovery sheet alone, which is the root (format spec FS-42) | A share is weak or extractable (T-25, T-28); device-key path (T-32) without M-14 |
 | SP-C9 | Key wrapping stays confidential against a future quantum adversary | P4 (E13) | ML-KEM-768 broken (the hybrid keeps X25519) |
 | SP-C10 | Tree authenticity: no file can be silently removed, and no path remapped to another object (M-40) | P1 format; P3 with the log | Signing key stolen; rollback before E18 |
 | SP-C11 | Backends learn nothing about contents from chunk sizes or boundaries (M-39) | P1 format | Manifests or shard headers stored in clear |
@@ -448,7 +448,7 @@ Generated from the tables below: each threat appears under every boundary its fl
 | T-32 | **Device key bypasses the threshold.** [Vision 5.4](project-vision.md#54-key-hierarchy) wraps the active epoch KEK to each device key, so one stolen device key opens current data without the 2-of-3 root | I | F5 | 4, 11 | — |
 | T-33 | **Shamir share tampering.** Forged, substituted or mixed-version shares (plain Shamir shares are malleable) | S, T | F12 | 4, 11 | — |
 | T-34 | **One signing key for the whole vault.** [Vision 5.4](project-vision.md#54-key-hierarchy) derives a single Ed25519 key from the root; entries cannot be tied to a device and one device can forge the whole log | R, S | F5 | 10, 11 | — |
-| T-79 | **Retired keys can be re-derived.** [Vision 5.4](project-vision.md#54-key-hierarchy) derives each epoch KEK from the root with HKDF, so "keys destroyed" is impossible: whoever gets the root later re-derives every retired KEK | I | F5 | 4, 12 | — |
+| T-79 | **Retired keys can be re-derived.** The first vision draft derived each epoch KEK from the root with HKDF (fixed by format spec FS-33), so "keys destroyed" is impossible: whoever gets the root later re-derives every retired KEK | I | F5 | 4, 12 | — |
 | T-80 | **Forgotten passphrase before U7.** In P1–P3 the passphrase is the whole root, so forgetting it loses the vault; [vision 5.8](project-vision.md#58-restore-and-recovery) promises U7, which only arrives in P4 | D | F4 | — (accident) | — |
 | T-81 | **Repeated randomness.** A VM snapshot restore or a forked process with a user-space RNG repeats nonces and IDs | I, T | F5 | 2 | vmgenid reseeding (LWN) |
 
@@ -616,11 +616,12 @@ A light LINDDUN pass (linkability, identifiability, detectability, disclosure). 
 | Metadata | Who sees it | Risk | Mitigation or residual |
 | --- | --- | --- | --- |
 | Number of shards, size buckets, upload times | Backends, network (ADV-1, ADV-3) | Detectability, linkability of edits | E3 padding; rest is R-5 |
-| Stable `path_hash` across versions | Backends | Links versions of the same file over time | Keyed hash; rotating the key per epoch is OQ-2 |
-| Genome log entry kinds and timing | Anyone holding the log (backends from P4) | Activity patterns | Log has no plaintext paths ([vision 9.3](project-vision.md#93-genome-log-entry)); rest is R-5 |
+| Stable path names across versions | Backends | Links versions of the same file over time | No path hash on any backend; paths only inside encrypted index nodes, re-encrypted on every change ([format spec FS-70](format-spec.md#12-path-index)) |
+| Genome log entry kinds and timing | Anyone holding the log (backends from P4) | Activity patterns | Log has no plaintext paths and encrypts entry kinds ([format spec 15](format-spec.md#15-genome-log-entry)); rest is R-5 |
 | Deny log, incident reports, process trees | Local only | Reveal project names and tools | Stored inside the vault; never leaves without redaction |
 | Webhook and SIEM payloads | Third-party services | Disclosure of paths and process names | Redact by default (T-59), opt in to detail |
 | Git push size and timing | Git host | Activity patterns | R-5 |
+| Commit count and times, the signing device of each root, device count, epochs, rotations and per-file size in single-file commits | Backends | Activity patterns, working hours per person in teams | Listed in [format spec 2.1](format-spec.md#21-what-a-backend-learns); R-5, and R-25 for teams |
 | Broker routing keys (P5) | Broker operator | Who works with whom | Opaque IDs in routing keys; reviewed in Phase 5 |
 | Behaviour baselines | Local only | A profile of the user's work habits | Stored encrypted; only alerts leave through M4, redacted |
 | Chunk sizes, chunk order and dedup hits | Backends | Fingerprinting and confirmation of known files (T-84, T-85) | M-39, OQ-9 |
@@ -646,17 +647,17 @@ These have no feature ID. They attach to existing backlog items and are checked 
 | M-5 | **Unphishable user presence.** A14 confirmation through a FIDO2 touch or a second device that shows the action being approved; the passphrase is never accepted from arbitrary socket callers | T-17, T-20 | A14 (P2 passphrase/polkit, then M-5) |
 | M-6 | **Protect steering files.** Files in A-9 inside the vault, agent configs included, are writable only by programs the user approved for them, never by agent trees; writes to them, and to lockfiles and dependency manifests, are a guard signal | T-07, T-67 | A2, U1 (P2); guard (P3) |
 | M-7 | **Policy owned by the daemon.** Policy and guard config change only through the A14 API; every change is logged (E12 from P3); files edited outside the API are ignored and raise signal S7 | T-21 | A2, A14 (P2) |
-| M-8 | **Full AAD.** Bind format version, vault ID, object ID, object version, chunk index, final-chunk flag (or chunk count) and epoch | T-35 | Format spec v0, E4 (P1) |
-| M-9 | **Key commitment.** CMT-4 commitment (to the key, nonce and AAD), for example a value derived by HKDF from the DEK and nonce and checked in constant time, in every wrapped key and chunk header | T-36 | Format spec v0 (P1) |
-| M-10 | **Argon2id floor and authenticated parameters.** Calibrated to at least 1 s and well above the OWASP minimum (target 256 MiB–1 GiB); minimums enforced in code; parameters bound into the AAD of the wrapped share; passphrase strength meter at `init` | T-25, T-26 | E6 (P1) |
+| M-8 | **Full AAD.** Bind format version, suite, vault ID, object ID, object version, chunk index, final-chunk flag (or chunk count) and epoch, either in the chunk AAD or in the signed manifest that orders the chunks. Format 0 puts vault, object, DEK and blob ID in the chunk AAD and binds version, order, count and the final chunk through the manifest's Merkle tree, so unchanged chunks can be reused (E1) | T-35 | Format spec v0, E4 (P1); [spec FS-50, FS-55–FS-57, FS-66–FS-68](format-spec.md#21-traceability) |
+| M-9 | **Key commitment.** CMT-4 commitment (to the key, nonce and AAD), for example a value derived by HKDF from the DEK and nonce and checked in constant time, in every wrapped key and every blob (format 0: CX-AEAD) | T-36 | Format spec v0 (P1); [spec FS-27–FS-29](format-spec.md#21-traceability) |
+| M-10 | **Argon2id floor and authenticated parameters.** Calibrated to at least 1 s and well above the OWASP minimum (target 256 MiB–1 GiB); minimums enforced in code; parameters bound into the AAD of the wrapped share; passphrase strength meter at `init` | T-25, T-26 | E6 (P1); [spec FS-40, FS-41](format-spec.md#21-traceability) |
 | M-11 | **Key wipe on suspend and lock.** Drop the root key and KEKs on suspend, hibernate and screen lock, and release the `memfd_secret` mappings before hibernation (which they otherwise block); re-unlock on resume | T-30 | O3 (P3) |
-| M-12 | **Event envelope.** Every queue job and bus event is authenticated (a MAC under a daemon key for M1, a device signature for M3) and carries sender ID, per-sender sequence number, issue and expiry time, audience (vault, recipient) and epoch; receivers keep a replay window; destructive jobs re-check signed state before acting | T-24, T-52 | M1 (P1), M3 (P5) |
+| M-12 | **Event envelope.** Every queue job and bus event is authenticated (a MAC under a daemon key for M1, a device signature for M3) and carries sender ID, per-sender sequence number, issue and expiry time, audience (vault, recipient) and epoch; receivers keep a replay window; destructive jobs re-check signed state before acting | T-24, T-52 | M1 (P1), M3 (P5); [spec FS-86](format-spec.md#21-traceability) |
 | M-13 | **Hardening mode detection.** Detect Full vs Degraded mode at start and show it in `crypthix status` and the extension | T-08 (W11) | Daemon (P2), O4 (P3) |
-| M-14 | **Per-device keys.** Each device signs with its own Ed25519 key, certified by the vault; device private keys are sealed by the TPM with a PIN or re-derived at unlock | T-32, T-34 | Format spec v0 (P1), U9 (P4) |
+| M-14 | **Per-device keys.** Each device signs with its own Ed25519 key, certified by the vault; device private keys are wrapped under the root in P1 and sealed by the TPM with a PIN once the device receives KEKs (P4) | T-32, T-34 | Format spec v0 (P1), U9 (P4); [spec FS-37, FS-49, FS-75–FS-77](format-spec.md#21-traceability) |
 | M-15 | **Daemon as its own system user.** Store, keys, config and queue owned by that user; API socket checks the peer with `SO_PEERPIDFD` (Linux 6.5+; `SO_PEERCRED` plus pidfd before that) and verifies its exe through that pidfd; per-request UID check on the mount; fail closed when the daemon is gone; root helper only loads BPF-LSM | T-10, T-16, T-18, T-19, T-21, T-22, T-31 | Daemon (P2) |
 | M-16 | **Recovery key at TPM enrolment.** Enrolling a TPM share prints a recovery share that works without the TPM | T-51 | O3 (P3) |
 | M-17 | **Launch-environment check.** Treat an allowed program as untrusted when it runs with `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `GCONV_PATH`, `NODE_OPTIONS`, `PYTHONSTARTUP` or similar, with `-c` config overrides (`git -c`), is being traced, or its exe is `ld.so`, a memfd or a deleted file. In Full mode the environment and interpreter are recorded at `exec` by BPF hooks (M-20); in Degraded mode `/proc/<pid>/environ` can be rewritten after start, so the check is best effort | T-06, T-08, T-71 | Program identity (P2) |
-| M-18 | **Verifiable, versioned shares.** Shares are random; the passphrase only encrypts its share (Argon2id, AEAD with the share-set ID as AAD), so changing it does not reissue paper shares. Feldman-verifiable shares (`vsss-rs`) or a MAC per share, share-set ID and version, constant-time field arithmetic, reject x=0 and duplicate x | T-33 | U7 (P4); passphrase share format in P1 |
+| M-18 | **Verifiable, versioned shares.** Shares are random; the passphrase only encrypts its share (Argon2id, AEAD with the share-set ID as AAD), so changing it does not reissue paper shares. Feldman-verifiable shares (`vsss-rs`) or a MAC per share, share-set ID and version, constant-time field arithmetic, reject x=0 and duplicate x | T-33 | U7 (P4); passphrase share format in P1; [spec FS-42–FS-45](format-spec.md#21-traceability) |
 | M-19 | **Hardened TPM use.** Salted, parameter-encrypted TPM sessions; TPM PIN with dictionary-attack lockout; signed PCR policy (systemd-pcrlock style) | T-27, T-29 | O3 (P3) |
 | M-20 | **Identity broker.** In Full mode, BPF programs loaded by the root helper record each task's exe (device, inode, fs-verity digest), cgroup, interpreter and launch environment at `exec` time, and the daemon reads that record per request. In Degraded mode the daemon reads `/proc` with `CAP_SYS_PTRACE` only | T-61, T-17, T-03 | Program identity (P2), O4 (P3) |
 | M-21 | **Root helper mounts.** The root helper mounts the vault and passes the `/dev/fuse` descriptor to the daemon; `user_allow_other` is never set | T-62 | Daemon (P2) |
@@ -671,19 +672,19 @@ These have no feature ID. They attach to existing backlog items and are checked 
 | M-30 | **Guard DoS budget.** A freeze first applies to the offending process tree only, and to the whole vault only on corroborating signals; one unfreeze suppresses re-freezing for the same identity for a while; guard triggers rotate the KEK and revoke approvals only; full DEK re-encryption needs A14 presence and shows a cost estimate; one rotation in flight at a time | T-75 | A8 (P3), E8 (P4) |
 | M-31 | **Signed approvals and log quotas.** Every approval and policy change is a signed log entry with the approving identity and presence method; deny-log entries are rate-limited and aggregated; the log has its own storage quota | T-76 | A3, A4 (P2), E12 (P3) |
 | M-32 | **Monotonic time for delays.** Deletion delays and guard windows count with a boot-aware monotonic counter stored in signed state, not the wall clock; expiry checks tolerate skew and fail closed when far off | T-77 | E17 (P3), E14 (P4) |
-| M-33 | **No downgrade.** One cipher suite per format version; the suite ID sits in the AAD and the signed header; the minimum format version is kept in signed state; updates of CryptHix itself are signed and refuse older versions (TUF-style) | T-78 | Format spec v0 (P1), 1.0 |
-| M-34 | **Retirable epoch keys.** Epoch KEKs are random (or a one-way ratchet whose old state is erased), wrapped by the root, never re-derivable from it | T-79 | Format spec v0, E6 (P1) |
+| M-33 | **No downgrade.** One cipher suite per format version; the suite ID sits in the AAD and the signed header; the minimum format version is kept in signed state; updates of CryptHix itself are signed and refuse older versions (TUF-style) | T-78 | Format spec v0 (P1), 1.0; [spec FS-05, FS-12, FS-13, FS-16–FS-19](format-spec.md#21-traceability) |
+| M-34 | **Retirable epoch keys.** Epoch KEKs are random (or a one-way ratchet whose old state is erased), wrapped by the root, never re-derivable from it | T-79 | Format spec v0, E6 (P1); [spec FS-33, FS-39, FS-47](format-spec.md#21-traceability) |
 | M-35 | **Recovery key at `init`.** `crypthix init` prints a recovery share that works without the passphrase, until U7 replaces it | T-80 | CLI v0 (P1) |
-| M-36 | **Kernel randomness only.** Keys, nonces and IDs come straight from `getrandom`, which the kernel reseeds after a VM restore; no forked user-space RNG; consider a synthetic-nonce mode for DEK wrapping | T-81, T-38 | Crypto wrappers (P1) |
-| M-37 | **Domain separation and canonical encoding.** A registry of HKDF `info` labels (`crypthix` ‖ version ‖ purpose ‖ vault ID ‖ epoch); signatures over a context prefix (`crypthix/v1/<type>`) and deterministic CBOR; Ed25519 `verify_strict` and rejection of small-order keys; Merkle leaves and nodes prefixed `0x00` and `0x01`, with the leaf count committed | T-83 | Format spec v0 (P1) |
-| M-38 | **Sound hybrid KEM.** X-Wing as the combiner; every wrap signed by an admin or device key; the `ml-kem` crate with the FIPS 203 encapsulation-key check; constant-time tests | T-82, T-37 | E13 (P4) |
-| M-39 | **Hide chunk structure.** Manifests and shard headers are encrypted apart from routing fields; chunks are packed into fixed-size packs; chunking parameters are secret per vault, assuming they may still leak | T-84, T-59 | Format spec v0 (P1) |
-| M-40 | **Signed vault root.** Every commit signs a Merkle root over the path index (path, object ID, version, class) with the log sequence number | T-86, T-43 | Format spec v0 (P1), E12 (P3) |
-| M-41 | **Retention and retirement together.** Wrapped keys are never locked longer than the E8 grace period; the root's wrapping key rotates at retirement; retirement waits for the later of lock expiry and the grace period; claims about retirement and crypto-shredding name the retention window | T-87 | E8, E19 (P4) |
+| M-36 | **Kernel randomness only.** Keys, nonces and IDs come straight from `getrandom`, which the kernel reseeds after a VM restore; no forked user-space RNG; consider a synthetic-nonce mode for DEK wrapping | T-81, T-38 | Crypto wrappers (P1); [spec FS-01, FS-29](format-spec.md#21-traceability) |
+| M-37 | **Domain separation and canonical encoding.** A registry of HKDF `info` labels (`u8 len ‖ crypthix/v0/kdf/<purpose> ‖ context`); signatures over a context prefix (`crypthix/v<format>/sig/<type>`) and deterministic CBOR; Ed25519 `verify_strict` and rejection of small-order keys; Merkle leaves and nodes prefixed `0x00` and `0x01`, with the leaf count committed | T-83 | Format spec v0 (P1); [spec FS-08, FS-12–FS-14, FS-25, FS-26, FS-66](format-spec.md#21-traceability) |
+| M-38 | **Sound hybrid KEM.** X-Wing as the combiner; every wrap signed by an admin or device key; the `ml-kem` crate with the FIPS 203 encapsulation-key check; constant-time tests | T-82, T-37 | E13 (P4); [spec FS-46](format-spec.md#21-traceability) |
+| M-39 | **Hide chunk structure.** Manifests and shard headers are encrypted apart from routing fields; chunks are packed into size-class packs; chunking parameters are secret per vault, assuming they may still leak | T-84, T-59 | Format spec v0 (P1); [spec FS-52, FS-54, FS-57, FS-59, FS-60, FS-62, FS-65, FS-70](format-spec.md#21-traceability) |
+| M-40 | **Signed vault root.** Every commit signs a Merkle root over the path index (path, object ID, version, class) with the root sequence number `root_seq` | T-86, T-43 | Format spec v0 (P1), E12 (P3); [spec FS-72, FS-73, FS-78–FS-80](format-spec.md#21-traceability) |
+| M-41 | **Retention and retirement together.** Wrapped keys are never locked longer than the E8 grace period; the root's wrapping key rotates at retirement; retirement waits for the later of lock expiry and the grace period; claims about retirement and crypto-shredding name the retention window | T-87 | E8, E19 (P4); [spec FS-39, FS-47, FS-48](format-spec.md#21-traceability) |
 | M-42 | **Backend policy hardening.** Put-only credentials with explicit denies on lifecycle, versioning and SSE-C changes; changes to backend retention are guard signal S8; deletion delay default 14–30 days; short Object Lock retention extended daily instead of long fixed terms; size and rate quotas on upload credentials; `crypthix doctor` shows the committed storage cost | T-88, T-93, T-45 | E17 (P3), E19 (P4) |
 | M-43 | **Repair budget.** Repair runs within a daily budget per backend, lazily until redundancy drops below a threshold; a backend that keeps failing verification is quarantined rather than rebuilt from | T-89 | E10 (P4) |
-| M-44 | **Crash-consistent commits.** Content-addressed, immutable shards; the manifest is committed last with a compare-and-swap on the log head; files and directories are fsynced before the log entry; crash-injection tests | T-90 | Local backend (P1), E8 (P4) |
-| M-45 | **Read-after-write check.** After writing, decode and decompress and compare with the plaintext hash; library versions pinned with test vectors | T-91 | Encrypt pipeline (P1) |
+| M-44 | **Crash-consistent commits.** Content-addressed, immutable shards; the signed vault root is committed last with a no-replace link (compare-and-swap); files and directories are fsynced first; crash-injection tests | T-90 | Local backend (P1), E8 (P4); [spec FS-63, FS-87, FS-89, FS-91](format-spec.md#21-traceability) |
+| M-45 | **Read-after-write check.** After writing, decode and decompress and compare with the plaintext hash; library versions pinned with test vectors | T-91 | Encrypt pipeline (P1); [spec FS-69, FS-88](format-spec.md#21-traceability) |
 | M-46 | **Backend liveness.** A probe per backend; alert when one is unreachable for more than a day; unreachable backends count against the redundancy margin; no provider holds more than m shards of an object | T-92 | U8 (P4) |
 | M-47 | **Safe restores and drills.** Drills verify ciphertext and MACs, or restore only inside the mount; restored executables and steering files are flagged for review | T-94 | U3 (P3), E20 (P4) |
 | M-48 | **Release hygiene.** `cargo-vet`, Actions pinned by commit SHA, crates.io trusted publishing, builds without secrets, reserved package and extension names, signed extensions and installers, a `SECURITY.md` with a disclosure process and a plan for a stolen signing key | T-57, T-96 | P0 onwards, 1.0 |
@@ -731,17 +732,17 @@ These have no feature ID. They attach to existing backlog items and are checked 
 | T-34 | M | SP-C7 | Mitigate | M-14 | Crypto and formats | P1 format, P4 |
 | T-35 | H | SP-C3 | Mitigate | M-8 | Crypto and formats | P1 |
 | T-36 | M | SP-C4 | Mitigate | M-9 | Crypto and formats | P1 |
-| T-37 | H | SP-C2 | Mitigate | Every public and wrapped key signed back to the vault or admin root; key material from a backend never trusted | Crypto and formats | P4, P5 |
-| T-38 | L | SP-C1 | Mitigate | Random XChaCha nonces; if AES-GCM, per-DEK usage limits (OQ-5) | Crypto and formats | P1 |
+| T-37 | H | SP-C2 | Mitigate | `vault_id` pins the master key (format spec FS-02); every public and wrapped key signed back to the vault or admin root; key material from a backend never trusted | Crypto and formats | P1, P4, P5 |
+| T-38 | L | SP-C1 | Mitigate | Random XChaCha nonces with a per-nonce subkey (CX-AEAD); hedged nonces for key wraps | Crypto and formats | P1 |
 | T-39 | M | SP-C2 | Mitigate | `cargo-fuzz` target on every parser | Crypto and formats | P0, P1 |
 | T-40 | L | SP-C1 | Mitigate, accept rest (R-5) | Per-chunk compression with E3 padding; no mixing of attacker data and secrets in one chunk | Crypto and formats | P1 |
 | T-41 | H | SP-C5 | Mitigate (W5) | E18 counter and log heads | Restore | P4 |
 | T-42 | M | SP-C5 | Mitigate | E18, maximum head age per backend | Restore | P4 |
-| T-43 | M | SP-C5 | Mitigate | Snapshot root over the manifest tree, log head | Restore | P3, P4 |
+| T-43 | M | SP-C5 | Mitigate | Signed vault root commits to every tree (format spec FS-78); snapshot roots and log head later | Restore | P1, P3, P4 |
 | T-44 | M | SP-C5 | Mitigate, accept rest (R-11) | Heads compared across devices, optional public head | Restore | P4 |
 | T-45 | H | SP-B5 | Mitigate, accept rest (R-12) | E19 *compliance* mode in a separate account, put-only credentials | Restore | P4 |
 | T-46 | M | SP-C1 | Mitigate | Credentials encrypted under the vault, held by the daemon | Restore | P4 |
-| T-47 | M | SP-C2 | Mitigate | Shard hashes checked against the signed manifest before decoding (E5, E9) | Durability | P4 |
+| T-47 | M | SP-C2 | Mitigate | Shard IDs and pack hashes checked before decoding (format spec FS-63, FS-64; E9) | Durability | P1, P4 |
 | T-48 | H | SP-B4 | Mitigate, accept rest (R-13) | Snapshots (E11, E17) are the real control; canary renames and overwrites, format-magic changes and per-block entropy as signals | Guard | P3 |
 | T-49 | M | SP-B5 | Mitigate | Pinned and incident snapshots never pruned; quota alerts; pending deletions shown at every unlock | Restore | P3 |
 | T-50 | M | SP-B5 | Mitigate | M-15; wrapped keys and log replicated with shards (E9); U7 | Restore | P2, P4 |
@@ -779,7 +780,7 @@ These have no feature ID. They attach to existing backlog items and are checked 
 | T-82 | M | SP-C9 | Mitigate | M-38 | Crypto and formats | P4 |
 | T-83 | M | SP-C2 | Mitigate | M-37 | Crypto and formats | P1 |
 | T-84 | H | SP-C11 | Mitigate | M-39 | Crypto and formats | P1 |
-| T-85 | M | SP-C11 | Defer (OQ-9) | Keyed chunk IDs; uploads always performed | Crypto and formats | P1 |
+| T-85 | M | SP-C11 | Mitigate, accept rest (R-5) | Blob IDs keyed per object; no deduplication for secret files (format spec FS-55) | Crypto and formats | P1 |
 | T-86 | H | SP-C10 | Mitigate | M-40 | Restore | P1, P3 |
 | T-87 | H | SP-C6 | Mitigate, accept rest (R-19) | M-41 | Rotation safety | P4 |
 | T-88 | H | SP-B5 | Mitigate, accept rest (R-20) | M-42 | Restore | P3, P4 |
@@ -825,7 +826,7 @@ Each row of the summary table in [vision section 8](project-vision.md#8-threat-m
 | Adversary | P1 engine | P2 (0.1 alpha) | P3 (0.5 beta) | P4 durability and sync | 1.0 and P5 |
 | --- | --- | --- | --- | --- | --- |
 | ADV-1 passive backend | N/A (local disk only) | N/A | N/A | D with M-39 (metadata R-5) | D |
-| ADV-2 active backend | P: signatures, no freshness | P | P: log, no E18 | **D**: E18, E19, authenticated keys | D |
+| ADV-2 active backend | P: signatures, per-device monotonicity (`root_seq`), no freshness for new devices | P | P: log, no E18 | **D**: E18, E19, authenticated keys | D |
 | ADV-3 git host | N/A | N/A | N/A | D (U4; sizes and timing R-5) | D |
 | ADV-4 offline thief | P: passphrase only (W6) | P (W6) | P: TPM added, no U7 yet | D with a discrete TPM or device share; P with an fTPM (R-4) | Same |
 | ADV-5 running-laptop thief | O | O | P: M-11, M-19 | P | P |
@@ -851,9 +852,9 @@ A window is a known gap between when a feature ships and when the feature that p
 | W1 | Per-program policy ships before injection blocking (O4) and binary integrity (O5) | P2 | P3, Full mode only | Same-user malware can inject into an allowed program |
 | W2 | The mount ships before snapshots (E11, E17) | P2 | P3 | Not ransomware-safe; keep another backup |
 | W3 | A14 presence is passphrase or polkit, which same-user code can fake | P2 | P4 (M-5, with the second device from U9) | Approve only prompts you triggered |
-| W4 | "Rotation" means KEK re-wrap only; old DEKs stay valid and revocation does not cut off existing data | P1 | P4 (E8) | Treat a leaked DEK as a leak of that data |
-| W5 | No anti-rollback from P1; the deny log (from P2) is unsigned until E12 | P1 | P3 (log), P4 (E18) | Do not use untrusted backends |
-| W6 | The root is the passphrase alone; in P3 the TPM share arrives before U7 | P1 | P4 (U7); M-35 (P1) and M-16 (P3) cover lockout | Use a long passphrase; keep the recovery share |
+| W4 | "Rotation" means KEK re-wrap only; old DEKs stay valid, an old KEK still opens DEK wraps in retained roots, and revocation does not cut off existing data | P1 | P4 (E8) | Treat a leaked DEK as a leak of that data |
+| W5 | Only per-device anti-rollback from P1 (none for a device without state, no freeze detection); the deny log (from P2) is unsigned until E12 | P1 | P3 (log), P4 (E18) | Do not use untrusted backends |
+| W6 | The root is the passphrase or the printed recovery sheet alone (1-of-2), so a leaked sheet needs a root rotation; in P3 the TPM share arrives before U7 | P1 | P4 (U7); M-35 (P1) and M-16 (P3) cover lockout | Use a long passphrase; keep the recovery share |
 | W7 | Learning mode (A16) only alerts for its first 7 days | P3 | Per install | Canary and BPF-LSM triggers still act |
 | W8 | *Release gate*: cloud backends before E18 and E19 | P4 | P4 | Cloud backends are off by default until E18 and E19 are in |
 | W9 | *Release gate*: multi-device before per-device keys (M-14) | P4 | P4 | M-14 must land before U9 |
@@ -909,20 +910,22 @@ A window is a known gap between when a feature ships and when the feature that p
 
 | ID | Question | Decide by |
 | --- | --- | --- |
-| OQ-1 | Where does the anti-rollback counter live: a TPM NV index, gossip between devices, a published log head (Rekor), or all three? What maximum head age per backend? | Format spec v0 (records the field); E18 (P4) |
-| OQ-2 | Rotate the `path_hash` key every epoch (less linkability) or keep it stable (deduplication, cheaper rotation)? | Format spec v0 |
+| OQ-1 | Where does the anti-rollback counter live: a TPM NV index, gossip between devices, a published log head (Rekor), or all three? What maximum head age per backend? *Partly answered (v0.3):* the counter is the vault root's `root_seq`, kept in each device's state; anchor fields reserved ([format spec FS-82](format-spec.md#14-signed-vault-root-and-monotonicity)) | E18 (P4) |
+| OQ-2 | *Answered (v0.3):* there is no `path_hash` on any backend; paths live only inside encrypted index nodes ([format spec FS-70](format-spec.md#12-path-index)) | — |
 | OQ-3 | Callers from containers, Flatpak and other namespaces: default is deny for secret classes (M-3). Open: the format of container profiles and how devcontainers are supported | Program identity (P2) |
 | OQ-4 | *Answered (v0.2):* in-editor assistants cannot be told apart from the editor; recorded as R-17 with M-26 | — |
-| OQ-5 | Default AEAD: XChaCha20-Poly1305 (random nonces are safe) or AES-256-GCM (needs per-DEK usage limits)? | Crypto wrappers (P1) |
+| OQ-5 | *Answered (v0.3):* XChaCha20-Poly1305 inside the committing CX-AEAD, the only suite of format 0 ([format spec FS-05](format-spec.md#42-suite-0x0001)) | — |
 | OQ-6 | Which FIDO2 or second-device flow closes W3? | Phase 4 backlog item "Unphishable user presence" |
 | OQ-7 | Exactly which capabilities does `crypthixd` hold in Degraded mode, and is there one daemon user per human or one shared user? | Daemon (P2) |
 | OQ-8 | How does CryptHix work with agent sandboxes (Claude Code bubblewrap, Codex Landlock and seccomp)? Does cgroup matching survive them, and how are their PIDs mapped? Recommended split: the sandbox handles writes and network, CryptHix handles reads | U1 (P2) |
-| OQ-9 | Deduplication scope (per object, vault or team) and whether chunk IDs are keyed MACs | Format spec v0 |
+| OQ-9 | *Answered (v0.3):* deduplication only inside one object for ordinary files, with blob IDs keyed per object; none for secret files ([format spec FS-55](format-spec.md#104-blobs)) | — |
 | OQ-10 | Can Google Drive be a shard backend under its API terms and restricted-scope review (`drive.file` scope, user-supplied OAuth client), or is it dropped? | Cloud backends (P4) |
-| OQ-11 | Conflict policy for concurrent edits from two devices | U9 (P4) |
+| OQ-11 | Conflict policy for concurrent edits from two devices | U9 (P4); format fields reserved ([format spec FS-89](format-spec.md#17-commit-rotation-and-garbage-collection)) |
 | OQ-12 | How stale may a token revocation list be before devices fail closed, and is every revocation tied to an emergency rotation? | E14 (P4) |
 | OQ-13 | Is there a FIPS mode (AES-256-GCM, validated modules) for compliance users? | Crypto wrappers (P1) |
 | OQ-14 | Does `getxattr` on secret classes leak class labels or canary markers? | A1 (P2), with M-23 |
+| OQ-15 | Pack size classes and packing policy for small commits ([format spec 22](format-spec.md#22-open-items)) | MVP benchmarks (P2) |
+| OQ-16 | Recovery text wordlist (SLIP-39 or BIP-39) and an optional QR code | CLI v0 (P1) |
 
 Decisions already taken (2026-10-29): the daemon runs as its own system user (M-15), with a root helper that mounts, loads BPF-LSM and brokers identity (M-20, M-21); A14 uses passphrase or polkit in 0.1 and moves to M-5; per-device signing keys and TPM-protected device keys are format requirements (M-14); new mitigations stay as M- IDs attached to existing backlog items.
 
@@ -950,6 +953,7 @@ Decisions already taken (2026-10-29): the daemon runs as its own system user (M-
 | --- | --- | --- | --- |
 | 2026-10-29 | P0 | Arpan, with research assistance | Baseline. 60 threats, 19 mitigations, 11 windows. Daemon user, presence and per-device key decisions recorded |
 | 2026-10-29 | P0 | Five persona reviews: Linux red team, applied cryptographer, AI-agent and supply-chain researcher, storage and resilience engineer, threat-model and compliance auditor | Added T-61–T-97, M-20–M-49, R-16–R-25, OQ-7–OQ-14, risk ratings and compliance notes; fixed precedent citations, phase-matrix over-claims and the Drive/Dropbox retention claim. Found that epoch KEKs as designed cannot be retired (T-79) |
+| 2026-10-29 | P0 | Out-of-cycle review for the format spec, with four persona reviews (applied cryptographer, parser engineer, storage engineer, auditor) | Format spec v0.3 written after two rounds of persona review (round two: malicious-server cryptanalyst, Rust implementer, plan-conformance auditor, privacy and recovery engineer); M-8, M-9, M-14, M-37, M-39, M-40 and M-44 reworded; AS-3, T-79, SP-C8, W6 and section 10 updated; OQ-2, OQ-5 and OQ-9 answered, OQ-1 partly; OQ-15 and OQ-16 added; SP-C3, SP-C5, SP-C6, W4, W5, T-37, T-38, T-43, T-47 and T-85 updated |
 
 ### 15.4 Changelog
 
@@ -957,6 +961,7 @@ Decisions already taken (2026-10-29): the daemon runs as its own system user (M-
 | --- | --- | --- |
 | v0.1 | 2026-10-29 | First version |
 | v0.2 | 2026-10-29 | Persona review merged (see review log) |
+| v0.3 | 2026-10-29 | Format spec cross-references (see review log) |
 
 ---
 

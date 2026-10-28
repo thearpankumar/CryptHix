@@ -7,6 +7,7 @@
 | Status | Vision draft v2, pre-code |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-27 |
+| Formats | [On-disk format spec](format-spec.md) (format 0, draft) |
 | Background research | [Feasibility and build plan](https://claude.ai/artifact/JAKix6igLC6EhYBkvWArwL) · [Access layer and use case](https://claude.ai/artifact/SdY46U8Ata41ng7uQjxfJs) |
 
 ## Contents
@@ -178,20 +179,22 @@ One `crypthixd` process serves each human user and wires together library crates
 
 ```mermaid
 flowchart LR
-    F["File bytes from an allowed app"] --> C["1. Chunk (FastCDC)"]
+    F["File bytes from an allowed app"] --> C["1. Chunk (FastCDC, secret seed)"]
     C --> Z["2. Compress (zstd)"]
-    Z --> P["3. Pad to size bucket"]
-    P --> E["4. Encrypt XChaCha20-Poly1305<br/>key = object DEK, AAD = object id + chunk index + epoch"]
-    E --> R["5. Reed-Solomon k+m shards"]
-    R --> H["6. Hash shards, build Merkle tree"]
-    H --> M["7. Signed manifest (Ed25519)"]
-    M --> L["8. Genome log entry"]
+    Z --> P["3. Pad (Padmé)"]
+    P --> E["4. Encrypt XChaCha20-Poly1305 with key commitment<br/>key from the object DEK, AAD = vault, object, DEK, blob ID"]
+    E --> K["5. Pack into size-class packs"]
+    K --> R["6. Reed-Solomon k+m shards per pack"]
+    R --> H["7. Hash shards; Merkle trees over chunks and the path index"]
+    H --> M["8. Encrypted manifest, signed by the device"]
+    M --> V["9. Signed vault root"]
+    V --> L["10. Genome log entry (P3)"]
     R --> S["Shards to backends"]
 ```
 
-**Read path** is the reverse: fetch any k of k+m shards → verify shard hashes against the signed manifest → decode → decrypt and verify the AEAD tag → unpad → decompress → reassemble. If a shard is missing or corrupt, the read still succeeds from parity and a repair job is queued for metabolism.
+**Read path** is the reverse: verify the newest vault root's signature and that it is not older than the last one this device saw → walk the path index to the manifest → fetch any k of k+m shards → verify shard and pack hashes against the pack table → decode → decrypt and verify the AEAD tag → unpad → decompress → reassemble. If a shard is missing or corrupt, the read still succeeds from parity and a repair job is queued for metabolism.
 
-**Order is fixed:** compress before encrypt (ciphertext does not compress), pad after compress (limits size leaks), erasure-code after encrypt (backends only ever see ciphertext).
+**Order is fixed:** compress before encrypt (ciphertext does not compress), pad after compress (limits size leaks), pack after encrypt (hides chunk boundaries), erasure-code after packing (backends only ever see ciphertext). The byte-level formats are in the [format spec](format-spec.md).
 
 ### 5.4 Key hierarchy
 
@@ -204,21 +207,24 @@ flowchart TB
         KMS["Optional cloud KMS share"]
     end
     ROOT -- "Shamir t-of-n recombine in memfd_secret" --> RK["Root key"]
-    RK -- HKDF --> KEK1["Epoch KEK e1 (retired)"]
-    RK -- HKDF --> KEK2["Epoch KEK e2 (active)"]
+    RK -- wraps --> KR["Keyring key (random)"]
+    KR -- wraps --> KEK1["Epoch KEK e1 (random, retired)"]
+    KR -- wraps --> KEK2["Epoch KEK e2 (random, active)"]
     KEK2 -- wraps --> DEKa["DEK object A"]
     KEK2 -- wraps --> DEKb["DEK object B"]
     DEKa -- encrypts --> CHa["Chunks of A"]
     DEKb -- encrypts --> CHb["Chunks of B"]
-    RK -- HKDF --> SIGN["Signing key (Ed25519)"]
+    RK -- wraps --> VSK["Vault signing key (Ed25519)"]
+    VSK -- certifies --> DSK["Device signing keys (one per device)"]
     RK -- HKDF --> CAN["Canary and honey-key seeds"]
-    MEM["Member / device keypairs<br/>X25519 + ML-KEM-768"] -- "hybrid wrap of epoch KEK" --> KEK2
+    MEM["Member / device keypairs<br/>X-Wing: X25519 + ML-KEM-768"] -- "signed hybrid wrap of epoch KEK" --> KEK2
 ```
 
 - **Root key:** split with Shamir secret sharing (default 2-of-3: passphrase share, TPM share, second-device share). Recombined only in protected memory.
-- **Epoch KEK:** one per rotation epoch; wraps every DEK written in that epoch.
+- **Epoch KEK:** one per rotation epoch, 32 random bytes wrapped by a random keyring key; never derived from the root, so deleting it really retires it ([format spec FS-33](format-spec.md#8-key-hierarchy)).
 - **DEK:** one per object (or per large file segment); encrypts chunks.
-- **Member and device keys:** hybrid post-quantum keypairs; the active epoch KEK is wrapped to each of them, which is how team folders and multi-device sync work.
+- **Signing keys:** a vault signing key, wrapped by the root, certifies one signing key per device. Devices sign vault roots, manifests and log entries, so every change is tied to one device ([format spec FS-36, FS-37](format-spec.md#8-key-hierarchy)).
+- **Member and device keys:** hybrid post-quantum keypairs; the active epoch KEK is wrapped to each of them in a signed wrap, which is how team folders and multi-device sync work. Devices that receive KEKs keep their keys under TPM and PIN.
 
 ### 5.5 Key rotation and epoch lifecycle
 
@@ -226,7 +232,7 @@ Two speeds of rotation:
 
 | Rotation | What changes | Cost | Default schedule |
 | --- | --- | --- | --- |
-| KEK rotation | New epoch KEK; DEKs re-wrapped | Tiny (re-wrap only) | Daily |
+| KEK rotation | New epoch KEK; DEK wraps, pack keys and the encrypted trees re-sealed in the background | Small (metadata only, about 200 bytes per object) | Daily |
 | DEK rotation | Chunks re-encrypted under new DEKs | Reads and writes all data | Every 90 days, or on emergency |
 | Emergency rotation | Both, immediately, at high priority | High | On guard trigger, member removal, device loss |
 
@@ -234,7 +240,7 @@ Two speeds of rotation:
 stateDiagram-v2
     [*] --> Active: epoch created
     Active --> Draining: new epoch created, new writes go to new epoch
-    Draining --> Verified: background re-encryption done, every chunk verified under new epoch
+    Draining --> Verified: wraps and metadata re-sealed (KEK) or data re-encrypted (E8) under the new epoch
     Verified --> GracePeriod: retirement scheduled
     GracePeriod --> Retired: grace period ends, keys destroyed, log entry signed
     GracePeriod --> Draining: problem found, retirement cancelled
@@ -243,7 +249,7 @@ stateDiagram-v2
 
 Safety rules:
 - Re-encryption runs under a **rate budget** (I/O and CPU caps) with **crash-safe checkpoints**; a restart resumes, never restarts.
-- **Two-phase retirement:** verify every chunk under the new epoch, wait a grace period (default 7 days), then destroy. Snapshots that still need an old epoch block its retirement until they expire or are re-encrypted.
+- **Two-phase retirement:** verify that nothing still stored depends on the old epoch, wait a grace period (default 7 days), then destroy. Snapshots that still need an old epoch block its retirement until they expire or are re-encrypted.
 - Any decrypt attempt with a **retired** key or token is itself a guard signal.
 
 ### 5.6 Per-program access decision
@@ -274,7 +280,7 @@ Identity details:
 - **Agent profiles** (U1) match a process *tree*: anything whose ancestor is `claude`, `cursor` or `codex` gets the agent rules, even if it is `python` or `cat`.
 - Rules are evaluated most-specific first; the default for unknown programs is **ask**, and for marked-secret paths is **deny**.
 
-Example policy file (`~/.config/crypthix/policy.toml`):
+Example policy file (`/var/lib/crypthix/<vault-id>/config/policy.toml`, changed only through the API):
 
 ```toml
 [[rule]]
@@ -352,7 +358,7 @@ flowchart TD
 Rules that keep restore trustworthy:
 - **Snapshots cannot be quietly destroyed (E17).** Deleting or shortening retention of a snapshot is a protected action (A14) and takes effect only after a delay (default 7 days), so ransomware cannot delete recovery points before you notice.
 - **Cloud copies are immutable where the provider allows (E19):** S3 Object Lock / versioning and similar settings mean a stolen cloud credential cannot wipe backups.
-- **No rollback attacks (E18):** a monotonic counter in the genome log, plus log heads kept on every device (and optionally the TPM), stops a malicious backend from serving an older, valid-looking version of the vault.
+- **No rollback attacks (E18):** a monotonic counter in the signed vault root (`root_seq`, [format spec FS-82](format-spec.md#143-anti-rollback-counter-and-expiry)), plus log heads kept on every device (and optionally the TPM), stops a malicious backend from serving an older, valid-looking version of the vault.
 - **Restores are tested:** `crypthix restore --verify` does a dry-run restore to a scratch area, and a scheduled monthly drill reports whether a full recovery would succeed.
 
 ### 5.9 Team and multi-device sync over RabbitMQ
@@ -377,7 +383,7 @@ sequenceDiagram
     A->>S: fetch wrapped e3 KEK, unwrap
     A->>A: new writes use e3, re-encryption jobs queued
     A->>RMQ: publish repair/re-encrypt progress
-    Note over A,S: When all chunks move to e3 and the grace period ends,<br/>e2 is retired; B's old copies become useless once<br/>retention windows expire (threat model T-87)
+    Note over A,S: When all data moves off e2 and the grace period ends,<br/>e2 is retired, and B's old copies become useless once<br/>retention windows expire (threat model T-87)
 ```
 
 Event types on the bus:
@@ -438,10 +444,10 @@ Legend: **MVP** = first public release (0.1) · **v1** = 1.0 · **Later** = afte
 | E1 | Content-defined chunking | FastCDC chunking so edits only rewrite changed chunks; enables deduplication within a vault | MVP |
 | E2 | Compression | zstd per chunk, skipped automatically for already-compressed data | MVP |
 | E3 | Size padding | Pad compressed chunks to size buckets so file sizes leak less | MVP |
-| E4 | Authenticated encryption | XChaCha20-Poly1305 (or AES-256-GCM) per chunk; AAD binds object ID, chunk index and key epoch | MVP |
-| E5 | Integrity and signatures | SHA-256 or BLAKE3 Merkle tree per object; Ed25519-signed manifest | MVP |
+| E4 | Authenticated encryption | XChaCha20-Poly1305 with key commitment per chunk; AAD binds vault, object and DEK, and the signed manifest binds order, count and version ([format spec](format-spec.md)) | MVP |
+| E5 | Integrity and signatures | BLAKE3 Merkle trees over each object and the path index; manifests signed by the writing device; a signed vault root | MVP |
 | E6 | Key hierarchy | Root key → epoch KEKs → per-object DEKs (envelope encryption) | MVP |
-| E7 | **Automatic KEK rotation** | Scheduled re-wrap of data keys (cheap, daily by default) | MVP |
+| E7 | **Automatic KEK rotation** | Scheduled re-wrap of data keys and re-seal of metadata, never of file data (daily by default) | MVP |
 | E8 | **DEK rotation and epoch retirement** | Background re-encryption under a rate budget with checkpoints; two-phase retirement destroys old keys. Forward secrecy for data at rest | v1 |
 | E9 | Erasure coding and placement | Reed-Solomon k+m shards placed across disks, folders and clouds; survive loss of any m | v1 |
 | E10 | Metabolism | Scheduled scrubbing, shard verification, automatic rebuild from parity, rebalancing | v1 |
@@ -602,7 +608,7 @@ Each scenario below shows several features cooperating.
 
 1. House fire: laptop and desktop gone. Shards survive on two cloud providers (U8), protected by Object Lock (E19).
 2. On a new machine: `crypthix recover`. Two of three emergency shares (U7), for example a paper share and a trusted person's share, rebuild the root key.
-3. CryptHix downloads manifests and the genome log, checks signatures and the newest known log head (E18), then rebuilds the vault.
+3. CryptHix checks the vault config against the `vault_id` printed on the recovery sheet, downloads the roots, manifests and the genome log, checks signatures and the newest known log head (E18), then rebuilds the vault. Without a published head, a new machine cannot tell the newest root from an older one.
 4. Old device tokens are revoked (E14) and an emergency rotation starts (E8). Monthly drills (E20) had already confirmed this path works.
 
 ### 7.8 Removing a team member (U6, M2)
@@ -646,62 +652,28 @@ This table is a summary. Assets, trust boundaries, every threat, the mitigations
 
 ## 9. Data model and formats
 
-### 9.1 Object manifest
+The byte-level formats live in the [on-disk format spec](format-spec.md). It replaces the sketches that used to be here; this section is a map.
+
+| Structure | What it holds | Format spec |
+| --- | --- | --- |
+| Share slots, keyring, epoch key files, vault signing key, device key | Wrapped key material, never plaintext; Argon2id parameters bound into the wrap | [9](format-spec.md#9-key-files) |
+| Data blobs, packs, shards, storage tables | Encrypted chunks in size-class packs with random pack keys; shards with encrypted headers, named by hash; key table, location tree and pack table | [10](format-spec.md#10-data-path-chunks-blobs-packs-and-shards) |
+| Object manifest | Chunk list and Merkle root; signed by the writing device, then encrypted under a key from the object DEK | [11](format-spec.md#11-object-manifest) |
+| Path index | Encrypted Merkle B+ tree from paths to manifests; no path hash on any backend | [12](format-spec.md#12-path-index) |
+| Vault config, device certificates, device set | Vault ID, master public key, pinned format and suite; one certificate per device; a device set signed by the master key | [13](format-spec.md#13-vault-config-and-devices) |
+| Signed vault root | Monotonic `root_seq` (the anti-rollback counter), commitments to everything above | [14](format-spec.md#14-signed-vault-root-and-monotonicity) |
+| Genome log entry | Hash-chained, signed per device, kind and details encrypted (P3) | [15](format-spec.md#15-genome-log-entry) |
+
+The daemon's own system user owns the store and the config ([threat model M-15](threat-model.md#111-new-mitigations-design-requirements)):
 
 ```text
-Manifest {
-  format_version: u16
-  object_id:      random 256-bit
-  path_hash:      keyed hash of the logical path (paths are encrypted separately)
-  epoch:          u32           // key epoch of this version
-  wrapped_dek:    bytes         // DEK wrapped by the epoch KEK
-  chunks: [ { index, plaintext_len, ciphertext_hash, shard_ids[k+m] } ]
-  merkle_root:    32 bytes
-  erasure:        { k, m }
-  compression:    zstd level / none
-  created_at, author_device_id
-  signature:      Ed25519 over all fields
-}
+/var/lib/crypthix/<vault-id>/
+  store/      config, roots, keys, devices, shards (what any backend holds)
+  device/     device state, device key, lock, queue (never uploaded)
+  config/     policy.toml, guard.toml, backends.toml (changed through the API)
 ```
 
-### 9.2 Shard
-
-```text
-Shard { shard_id = hash(contents), object_id, chunk_index, shard_index, payload }
-```
-Shards are named by hash, so backends see random-looking names and sizes from a few buckets. Shard headers and manifests must be encrypted apart from routing fields, or chunk boundaries fingerprint file contents ([threat model T-84](threat-model.md#75-cryptography-and-formats)).
-
-### 9.3 Genome log entry
-
-```text
-LogEntry {
-  seq:       u64
-  prev_hash: 32 bytes            // hash chain
-  time, device_id
-  kind:      Put | Delete | Rotate | Retire | Repair | Snapshot | Rollback
-             | GuardAlert | Freeze | Unfreeze | Incident | Restore | RestoreDrill
-             | Revoke | PolicyChange | MemberChange | DeviceChange
-  details:   kind-specific, no plaintext paths or contents
-  signature: Ed25519
-}
-```
-
-### 9.4 Directory layout
-
-```text
-~/.local/share/crypthix/<vault-id>/
-  manifests/       signed manifests (encrypted path index inside)
-  shards/          local shards (only crypthixd may open: O4)
-  log/             genome log segments
-  snapshots/       snapshot roots
-  keys/            wrapped key material, never plaintext
-# Planned: store and config owned by the daemon's own system user
-# (threat model M-15); paths move in the format spec.
-~/.config/crypthix/
-  policy.toml      access rules and agent profiles
-  backends.toml    disks, S3, Drive, Dropbox, git remotes
-  guard.toml       thresholds, canaries, playbook levels
-```
+The full tree is in [format spec 18](format-spec.md#18-directory-layout).
 
 ---
 
@@ -776,12 +748,13 @@ A running program always sees plaintext in its own memory. CryptHix guarantees t
 
 | Purpose | Choice | Rust crate (candidate) |
 | --- | --- | --- |
-| Chunk encryption | XChaCha20-Poly1305 or AES-256-GCM | `chacha20poly1305`, `aws-lc-rs` |
-| Key derivation | HKDF-SHA256 | `hkdf` |
+| Chunk encryption | XChaCha20-Poly1305 with key commitment (suite `0x0001`) | `chacha20poly1305` |
+| Key derivation | HKDF-SHA-256 | `hkdf` |
 | Passphrase hardening | Argon2id | `argon2` |
-| Hashing / Merkle | SHA-256 or BLAKE3 | `sha2`, `blake3` |
+| Hashing / Merkle | BLAKE3 | `blake3` |
 | Signatures | Ed25519 | `ed25519-dalek` |
-| Key exchange / wrapping | X25519 + ML-KEM-768 hybrid | `x25519-dalek`, `ml-kem` |
+| Key exchange / wrapping | X-Wing (X25519 + ML-KEM-768) | `x25519-dalek`, `ml-kem` |
+| Encoding | Deterministic CBOR (RFC 8949) after a fixed preamble | `minicbor`, `zerocopy` |
 | Secret sharing | Shamir | `vsss-rs` |
 | Erasure coding | Reed-Solomon | `reed-solomon-simd` |
 | Compression | zstd | `zstd` |
@@ -792,7 +765,7 @@ A running program always sees plaintext in its own memory. CryptHix guarantees t
 | TPM | TPM 2.0 | `tss-esapi` |
 | Messaging | Embedded queue; AMQP for RabbitMQ | `lapin` |
 
-Fixed pipeline order: **chunk → compress → pad → encrypt → erasure-code → hash and sign**.
+Fixed pipeline order: **chunk → compress → pad → encrypt → pack → erasure-code → hash and sign**.
 
 ---
 
@@ -879,7 +852,7 @@ Dates are estimates, not commitments.
 
 | Area | Method |
 | --- | --- |
-| Crypto and formats | Known-answer test vectors, property tests, `cargo-fuzz` on every parser |
+| Crypto and formats | Known-answer and negative test vectors in `tests/test-vectors` ([format spec 20](format-spec.md#20-test-vectors)), property tests, `cargo-fuzz` on every parser |
 | Rotation safety | Crash-injection tests mid re-encryption; proof test that a retired key decrypts nothing |
 | Durability | Chaos tests that delete and corrupt random shards and backends |
 | Access policy | Test matrix of programs × paths × agent trees; attempted bypasses (symlinks, hard links, renames, `/proc` tricks, descriptor passing, mmap and page-cache reuse, PID reuse) |
@@ -923,7 +896,8 @@ Dates are estimates, not commitments.
 - **Much of the protection is access control.** Encryption adds safety for stolen disks, backups and cloud sync, plus rotation and verifiable history.
 - **Re-encryption costs I/O.** Rotating 1 TB of data keys means reading and writing 1 TB; rate budgets keep it in the background.
 - **FUSE adds overhead**; FUSE passthrough (Linux 6.9+) helps.
-- **Metadata leaks remain**: number of shards, timing and approximate sizes.
+- **Metadata leaks remain**: number of shards, commits and devices, timing, which device signed each commit, and approximate sizes ([format spec 2.1](format-spec.md#21-what-a-backend-learns)).
+- **Deleting a file is not erasure** until the deletion horizon has passed; changing a passphrase does not revoke the old one ([format spec 2.2](format-spec.md#22-limits-of-format-0-in-phase-1)).
 - **Unaudited crypto is experimental.** No production use before the 1.0 audit.
 - **Allowing an interpreter allows any code it runs.** An allowed `python3`, `node` or `git` also runs `python3 -c`, npm scripts and git hooks.
 - **AI agent detection is best effort.** A determined agent can leave its process tree; assistants running inside the editor may not be distinguishable.
@@ -939,7 +913,7 @@ Dates are estimates, not commitments.
 3. **Repository:** create a GitHub repo (for example `thearpankumar/crypthix`) so work can start.
 4. **Business model:** fully free, or open core with paid team features (U6, M2) and hosted backups?
 5. **Default root scheme:** passphrase + TPM + second device (2-of-3), or passphrase only for the alpha?
-6. **Threat-model questions:** anti-rollback counter location, `path_hash` rotation, namespaced callers, in-editor agents, default AEAD and the unphishable presence flow are tracked in [threat-model.md](threat-model.md#14-open-questions).
+6. **Threat-model questions:** namespaced callers, the unphishable presence flow and the anchors for the anti-rollback counter are tracked in [threat-model.md](threat-model.md#14-open-questions).
 
 ---
 
