@@ -668,7 +668,7 @@ The daemon's own system user owns the store and the config ([threat model M-15](
 
 ```text
 /var/lib/crypthix/<vault-id>/
-  store/      config, roots, keys, devices, shards (what any backend holds)
+  store/      configs, roots, keys, devices, shards (what any backend holds)
   device/     device state, device key, lock, queue (never uploaded)
   config/     policy.toml, guard.toml, backends.toml (changed through the API)
 ```
@@ -754,7 +754,7 @@ A running program always sees plaintext in its own memory. CryptHix guarantees t
 | Hashing / Merkle | BLAKE3 | `blake3` |
 | Signatures | Ed25519 | `ed25519-dalek` |
 | Key exchange / wrapping | X-Wing (X25519 + ML-KEM-768) | `x25519-dalek`, `ml-kem` |
-| Encoding | Deterministic CBOR (RFC 8949) after a fixed preamble | `minicbor`, `zerocopy` |
+| Encoding | Deterministic CBOR (RFC 8949) after a fixed preamble | Own strict codec in `crypthix-types`: no CBOR crate checks canonical form on decode |
 | Secret sharing | Shamir | `vsss-rs` |
 | Erasure coding | Reed-Solomon | `reed-solomon-simd` |
 | Compression | zstd | `zstd` |

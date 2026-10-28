@@ -1,0 +1,1433 @@
+{
+  "set": "TV-03",
+  "structure": "cbor-document",
+  "formatVersion": 0,
+  "suiteId": 1,
+  "generator": "hand-written (crypthix-vector-gen reproduces it)",
+  "limits": "Limits::FORMAT_0",
+  "notes": {
+    "Valid": {
+      "cites": [
+        "FS-08",
+        "M-37"
+      ],
+      "description": "Canonical CBOR of the allowed subset"
+    },
+    "BytewiseKeyOrder": {
+      "cites": [
+        "FS-08",
+        "M-37",
+        "T-83"
+      ],
+      "description": "Keys sorted by their encoded bytes, not by value or length first"
+    },
+    "NonShortestHead": {
+      "cites": [
+        "FS-08",
+        "M-37",
+        "T-83"
+      ],
+      "description": "An argument in a wider head than needed"
+    },
+    "IndefiniteLength": {
+      "cites": [
+        "FS-08",
+        "T-83"
+      ],
+      "description": "Indefinite length or break code"
+    },
+    "Malformed": {
+      "cites": [
+        "FS-08",
+        "T-39"
+      ],
+      "description": "Reserved additional information value"
+    },
+    "Tag": {
+      "cites": [
+        "FS-08",
+        "T-83"
+      ],
+      "description": "A tag anywhere in the document"
+    },
+    "Float": {
+      "cites": [
+        "FS-08",
+        "T-83"
+      ],
+      "description": "A floating-point value"
+    },
+    "SimpleValue": {
+      "cites": [
+        "FS-08",
+        "T-83"
+      ],
+      "description": "A simple value other than false, true and null"
+    },
+    "KeyOrder": {
+      "cites": [
+        "FS-08",
+        "M-37",
+        "T-83"
+      ],
+      "description": "Map keys not in bytewise order"
+    },
+    "DuplicateKey": {
+      "cites": [
+        "FS-08",
+        "M-37",
+        "T-83"
+      ],
+      "description": "The same key twice in a map"
+    },
+    "KeyRange": {
+      "cites": [
+        "FS-09",
+        "T-83"
+      ],
+      "description": "Map key at or outside the i32 range"
+    },
+    "KeyType": {
+      "cites": [
+        "FS-09",
+        "T-83"
+      ],
+      "description": "Map key that is not an integer"
+    },
+    "IntegerRange": {
+      "cites": [
+        "FS-09",
+        "T-39"
+      ],
+      "description": "Negative integer below -2^63"
+    },
+    "InvalidText": {
+      "cites": [
+        "FS-10",
+        "T-39"
+      ],
+      "description": "Text string that is not valid UTF-8"
+    },
+    "ControlCharacter": {
+      "cites": [
+        "FS-10",
+        "T-83"
+      ],
+      "description": "C0 or C1 control character in text (Unicode Cc)"
+    },
+    "Bidi": {
+      "cites": [
+        "FS-10",
+        "T-83"
+      ],
+      "description": "Bidirectional formatting character in text"
+    },
+    "Depth": {
+      "cites": [
+        "FS-11",
+        "T-39"
+      ],
+      "description": "Nesting depth at or above the limit of 8"
+    },
+    "LengthOverInput": {
+      "cites": [
+        "FS-11",
+        "T-39"
+      ],
+      "description": "A declared length or count larger than the input or a limit, rejected before allocating"
+    },
+    "Truncated": {
+      "cites": [
+        "FS-11",
+        "T-39"
+      ],
+      "description": "Input ends inside a head"
+    },
+    "TrailingBytes": {
+      "cites": [
+        "FS-08",
+        "T-83"
+      ],
+      "description": "Bytes after the single top-level item"
+    },
+    "NestedDocument": {
+      "cites": [
+        "FS-08",
+        "M-37",
+        "T-83"
+      ],
+      "description": "CBOR carried in a byte string is checked again with its own budget"
+    },
+    "ForbiddenKey": {
+      "cites": [
+        "FS-08",
+        "FS-93",
+        "T-83"
+      ],
+      "description": "A tag, float or simple value as a map key: the encoding rule wins over the key rule"
+    },
+    "ErrorOrder": {
+      "cites": [
+        "FS-93",
+        "T-83"
+      ],
+      "description": "Several errors; items are checked in byte order and the first failing check decides"
+    },
+    "ContainerLimit": {
+      "cites": [
+        "FS-11",
+        "T-39"
+      ],
+      "description": "Items in one array at and over 2^20 (built by the runner: inputs.flat zero items)"
+    },
+    "TotalItemLimit": {
+      "cites": [
+        "FS-11",
+        "T-39"
+      ],
+      "description": "Items in one document at and over 2^22 (built by the runner: an array of arrays of zeros with lengths inputs.inner)"
+    }
+  },
+  "testGroups": [
+    {
+      "type": "DocumentParse",
+      "tests": [
+        {
+          "tcId": 1,
+          "comment": "unsigned 0",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "00"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 2,
+          "comment": "unsigned 23, the largest in the initial byte",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "17"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 3,
+          "comment": "unsigned 24, the smallest with a 1-byte argument",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "1818"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 4,
+          "comment": "unsigned 2^64 - 1",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "1bffffffffffffffff"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 5,
+          "comment": "negative -1",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "20"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 6,
+          "comment": "negative -2^63, the smallest allowed",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "3b7fffffffffffffff"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 7,
+          "comment": "byte string",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "43010203"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 8,
+          "comment": "text string with non-ASCII letters",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "6ac3bc6e69636f6465c3a9"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 9,
+          "comment": "false, true, null in an array",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "83f4f5f6"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 10,
+          "comment": "empty array and empty map",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "8280a0"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 11,
+          "comment": "key 24 (0x18 0x18) sorts before key -1 (0x20)",
+          "flags": [
+            "Valid",
+            "BytewiseKeyOrder"
+          ],
+          "inputs": {
+            "cbor": "a21818f420f6"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 12,
+          "comment": "keys 0, 1, 23, 24, 255, 256, -1, -24, -25",
+          "flags": [
+            "Valid",
+            "BytewiseKeyOrder"
+          ],
+          "inputs": {
+            "cbor": "a900000100170018180018ff001901000020003700381800"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 13,
+          "comment": "key 2^31 - 1 and key -2^31",
+          "flags": [
+            "Valid",
+            "KeyRange"
+          ],
+          "inputs": {
+            "cbor": "a21a7fffffff003a7fffffff00"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 14,
+          "comment": "nesting depth 8",
+          "flags": [
+            "Valid",
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "8181818181818180"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 15,
+          "comment": "5 in a 1-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "1805"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 16,
+          "comment": "255 in a 2-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "1900ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 17,
+          "comment": "65535 in a 4-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "1a0000ffff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 18,
+          "comment": "2^32 - 1 in an 8-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "1b00000000ffffffff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 19,
+          "comment": "byte-string length 2 in a 1-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "58020102"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 20,
+          "comment": "array count in a 2-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "99000100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 21,
+          "comment": "map key -1 in a 1-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "a1380000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 22,
+          "comment": "indefinite-length array",
+          "flags": [
+            "IndefiniteLength"
+          ],
+          "inputs": {
+            "cbor": "9f01ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 23,
+          "comment": "indefinite-length byte string",
+          "flags": [
+            "IndefiniteLength"
+          ],
+          "inputs": {
+            "cbor": "5f4101ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 24,
+          "comment": "indefinite-length map",
+          "flags": [
+            "IndefiniteLength"
+          ],
+          "inputs": {
+            "cbor": "bf0100ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 25,
+          "comment": "lone break code",
+          "flags": [
+            "IndefiniteLength"
+          ],
+          "inputs": {
+            "cbor": "ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 26,
+          "comment": "reserved additional information 28",
+          "flags": [
+            "Malformed"
+          ],
+          "inputs": {
+            "cbor": "1c"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 27,
+          "comment": "tag 0 on a text string",
+          "flags": [
+            "Tag"
+          ],
+          "inputs": {
+            "cbor": "c06130"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 28,
+          "comment": "tag 24 (embedded CBOR) on a byte string",
+          "flags": [
+            "Tag"
+          ],
+          "inputs": {
+            "cbor": "d8184100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 29,
+          "comment": "tag inside an array",
+          "flags": [
+            "Tag"
+          ],
+          "inputs": {
+            "cbor": "81c100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 30,
+          "comment": "half-precision float 0.0",
+          "flags": [
+            "Float"
+          ],
+          "inputs": {
+            "cbor": "f90000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 31,
+          "comment": "single-precision float",
+          "flags": [
+            "Float"
+          ],
+          "inputs": {
+            "cbor": "fa47c35000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 32,
+          "comment": "double-precision float as a map value",
+          "flags": [
+            "Float"
+          ],
+          "inputs": {
+            "cbor": "a101fb3ff0000000000000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 33,
+          "comment": "undefined",
+          "flags": [
+            "SimpleValue"
+          ],
+          "inputs": {
+            "cbor": "f7"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 34,
+          "comment": "simple value 16",
+          "flags": [
+            "SimpleValue"
+          ],
+          "inputs": {
+            "cbor": "f0"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 35,
+          "comment": "simple value 255",
+          "flags": [
+            "SimpleValue"
+          ],
+          "inputs": {
+            "cbor": "f8ff"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 36,
+          "comment": "key -1 before key 24",
+          "flags": [
+            "KeyOrder"
+          ],
+          "inputs": {
+            "cbor": "a220f41818f6"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 37,
+          "comment": "keys 2 then 1",
+          "flags": [
+            "KeyOrder"
+          ],
+          "inputs": {
+            "cbor": "a202000100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 38,
+          "comment": "duplicate key 1",
+          "flags": [
+            "DuplicateKey"
+          ],
+          "inputs": {
+            "cbor": "a201000101"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 39,
+          "comment": "duplicate key -1 in a nested map",
+          "flags": [
+            "DuplicateKey"
+          ],
+          "inputs": {
+            "cbor": "81a220002001"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 40,
+          "comment": "key 2^31",
+          "flags": [
+            "KeyRange"
+          ],
+          "inputs": {
+            "cbor": "a11a8000000000"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 41,
+          "comment": "key -2^31 - 1",
+          "flags": [
+            "KeyRange"
+          ],
+          "inputs": {
+            "cbor": "a13a8000000000"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 42,
+          "comment": "text key",
+          "flags": [
+            "KeyType"
+          ],
+          "inputs": {
+            "cbor": "a1616100"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 43,
+          "comment": "byte-string key",
+          "flags": [
+            "KeyType"
+          ],
+          "inputs": {
+            "cbor": "a1410100"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 44,
+          "comment": "boolean key",
+          "flags": [
+            "KeyType"
+          ],
+          "inputs": {
+            "cbor": "a1f500"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 45,
+          "comment": "negative integer -2^63 - 1",
+          "flags": [
+            "IntegerRange"
+          ],
+          "inputs": {
+            "cbor": "3b8000000000000000"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 46,
+          "comment": "invalid UTF-8",
+          "flags": [
+            "InvalidText"
+          ],
+          "inputs": {
+            "cbor": "62c328"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 47,
+          "comment": "UTF-8 encoded surrogate",
+          "flags": [
+            "InvalidText"
+          ],
+          "inputs": {
+            "cbor": "63eda080"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 48,
+          "comment": "line feed in text",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "620a61"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 49,
+          "comment": "NUL in text",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "6100"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 50,
+          "comment": "C1 control U+0085 in text",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "62c285"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 51,
+          "comment": "right-to-left override U+202E in a name",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "6561e280ae62"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 52,
+          "comment": "Arabic letter mark U+061C",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "62d89c"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 53,
+          "comment": "first strong isolate U+2068",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e281a8"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 54,
+          "comment": "nesting depth 9",
+          "flags": [
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "818181818181818180"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 55,
+          "comment": "byte string declares 5 bytes, 2 follow",
+          "flags": [
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "450102"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 56,
+          "comment": "array declares 3 items, 1 follows",
+          "flags": [
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "8301"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 57,
+          "comment": "array declares 2^64 - 1 items",
+          "flags": [
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "9bffffffffffffffff"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 58,
+          "comment": "map declares 2^20 + 1 entries",
+          "flags": [
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "ba00100001"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 59,
+          "comment": "byte string declares 16 MiB + 1",
+          "flags": [
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "5a01000001"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 60,
+          "comment": "empty input",
+          "flags": [
+            "Truncated"
+          ],
+          "inputs": {
+            "cbor": ""
+          },
+          "expect": "Truncated"
+        },
+        {
+          "tcId": 61,
+          "comment": "2-byte argument cut short",
+          "flags": [
+            "Truncated"
+          ],
+          "inputs": {
+            "cbor": "1901"
+          },
+          "expect": "Truncated"
+        },
+        {
+          "tcId": 62,
+          "comment": "two top-level items",
+          "flags": [
+            "TrailingBytes"
+          ],
+          "inputs": {
+            "cbor": "0102"
+          },
+          "expect": "TrailingBytes"
+        },
+        {
+          "tcId": 63,
+          "comment": "array followed by a stray byte",
+          "flags": [
+            "TrailingBytes"
+          ],
+          "inputs": {
+            "cbor": "820102ff"
+          },
+          "expect": "TrailingBytes"
+        },
+        {
+          "tcId": 64,
+          "comment": "empty map followed by a byte",
+          "flags": [
+            "TrailingBytes"
+          ],
+          "inputs": {
+            "cbor": "a000"
+          },
+          "expect": "TrailingBytes"
+        },
+        {
+          "tcId": 65,
+          "comment": "tag as a map key",
+          "flags": [
+            "Tag",
+            "ForbiddenKey"
+          ],
+          "inputs": {
+            "cbor": "a1c00000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 66,
+          "comment": "float as a map key",
+          "flags": [
+            "Float",
+            "ForbiddenKey"
+          ],
+          "inputs": {
+            "cbor": "a1f93c0000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 67,
+          "comment": "undefined as a map key",
+          "flags": [
+            "SimpleValue",
+            "ForbiddenKey"
+          ],
+          "inputs": {
+            "cbor": "a1f700"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 68,
+          "comment": "true as a map key: a valid item, but not an integer",
+          "flags": [
+            "KeyType"
+          ],
+          "inputs": {
+            "cbor": "a1f500"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 69,
+          "comment": "simple value 20 in a 1-byte argument",
+          "flags": [
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "f814"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 70,
+          "comment": "simple value 24",
+          "flags": [
+            "SimpleValue"
+          ],
+          "inputs": {
+            "cbor": "f818"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 71,
+          "comment": "simple value 31",
+          "flags": [
+            "SimpleValue"
+          ],
+          "inputs": {
+            "cbor": "f81f"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 72,
+          "comment": "half float cut short",
+          "flags": [
+            "Truncated"
+          ],
+          "inputs": {
+            "cbor": "f900"
+          },
+          "expect": "Truncated"
+        },
+        {
+          "tcId": 73,
+          "comment": "reserved additional information 29",
+          "flags": [
+            "Malformed"
+          ],
+          "inputs": {
+            "cbor": "1d"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 74,
+          "comment": "reserved additional information 30",
+          "flags": [
+            "Malformed"
+          ],
+          "inputs": {
+            "cbor": "1e"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 75,
+          "comment": "empty text",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "60"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 76,
+          "comment": "4-byte UTF-8 character",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "64f0908591"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 77,
+          "comment": "no-break space U+00A0 is not a control character",
+          "flags": [
+            "Valid"
+          ],
+          "inputs": {
+            "cbor": "62c2a0"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 78,
+          "comment": "overlong UTF-8",
+          "flags": [
+            "InvalidText"
+          ],
+          "inputs": {
+            "cbor": "62c080"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 79,
+          "comment": "UTF-8 above U+10FFFF",
+          "flags": [
+            "InvalidText"
+          ],
+          "inputs": {
+            "cbor": "64f4908080"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 80,
+          "comment": "UTF-8 sequence cut off inside the string",
+          "flags": [
+            "InvalidText"
+          ],
+          "inputs": {
+            "cbor": "62e282"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 81,
+          "comment": "DEL U+007F",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "617f"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 82,
+          "comment": "C1 control U+0080",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "62c280"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 83,
+          "comment": "C1 control U+009F",
+          "flags": [
+            "ControlCharacter"
+          ],
+          "inputs": {
+            "cbor": "62c29f"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 84,
+          "comment": "left-to-right mark U+200E",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e2808e"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 85,
+          "comment": "right-to-left mark U+200F",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e2808f"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 86,
+          "comment": "left-to-right embedding U+202A",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e280aa"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 87,
+          "comment": "left-to-right isolate U+2066",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e281a6"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 88,
+          "comment": "pop directional isolate U+2069",
+          "flags": [
+            "Bidi"
+          ],
+          "inputs": {
+            "cbor": "63e281a9"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 89,
+          "comment": "positive bignum tag (RFC 8949 Appendix A)",
+          "flags": [
+            "Tag"
+          ],
+          "inputs": {
+            "cbor": "c249010000000000000000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 90,
+          "comment": "negative bignum tag (RFC 8949 Appendix A)",
+          "flags": [
+            "Tag"
+          ],
+          "inputs": {
+            "cbor": "c349010000000000000000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 91,
+          "comment": "-2^64 (RFC 8949 Appendix A)",
+          "flags": [
+            "IntegerRange"
+          ],
+          "inputs": {
+            "cbor": "3bffffffffffffffff"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 92,
+          "comment": "bad text before a non-shortest head: the first item decides",
+          "flags": [
+            "ErrorOrder"
+          ],
+          "inputs": {
+            "cbor": "8261001805"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 93,
+          "comment": "non-shortest head before bad text: the first item decides",
+          "flags": [
+            "ErrorOrder"
+          ],
+          "inputs": {
+            "cbor": "8218056100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 94,
+          "comment": "count over the bytes left is decided at the container head",
+          "flags": [
+            "ErrorOrder",
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "84180500"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 95,
+          "comment": "map nesting depth 8",
+          "flags": [
+            "Valid",
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "a100a100a100a100a100a100a100a0"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 96,
+          "comment": "map nesting depth 9",
+          "flags": [
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "a100a100a100a100a100a100a100a100a0"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 97,
+          "comment": "depth 9 reached inside a map value",
+          "flags": [
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "a1008181818181818180"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 98,
+          "comment": "empty map at depth 9",
+          "flags": [
+            "Depth"
+          ],
+          "inputs": {
+            "cbor": "8181818181818181a0"
+          },
+          "expect": "Limit"
+        }
+      ]
+    },
+    {
+      "type": "NestedDocumentParse",
+      "tests": [
+        {
+          "tcId": 99,
+          "comment": "canonical map inside a byte string",
+          "flags": [
+            "Valid",
+            "NestedDocument"
+          ],
+          "inputs": {
+            "cbor": "43a10100"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 100,
+          "comment": "non-shortest integer inside a byte string",
+          "flags": [
+            "NestedDocument",
+            "NonShortestHead"
+          ],
+          "inputs": {
+            "cbor": "421805"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 101,
+          "comment": "unsorted map inside a byte string",
+          "flags": [
+            "NestedDocument",
+            "KeyOrder"
+          ],
+          "inputs": {
+            "cbor": "45a202000100"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 102,
+          "comment": "float inside a byte string",
+          "flags": [
+            "NestedDocument",
+            "Float"
+          ],
+          "inputs": {
+            "cbor": "43f90000"
+          },
+          "expect": "NonCanonical"
+        },
+        {
+          "tcId": 103,
+          "comment": "outer item is not a byte string",
+          "flags": [
+            "NestedDocument",
+            "KeyType"
+          ],
+          "inputs": {
+            "cbor": "a0"
+          },
+          "expect": "Schema"
+        },
+        {
+          "tcId": 104,
+          "comment": "declared length over the bytes left inside a byte string",
+          "flags": [
+            "NestedDocument",
+            "LengthOverInput"
+          ],
+          "inputs": {
+            "cbor": "424501"
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 105,
+          "comment": "head cut short inside a byte string",
+          "flags": [
+            "NestedDocument"
+          ],
+          "inputs": {
+            "cbor": "4119"
+          },
+          "expect": "Truncated"
+        }
+      ]
+    },
+    {
+      "type": "GeneratedDocumentParse",
+      "tests": [
+        {
+          "tcId": 106,
+          "comment": "array of exactly 2^20 items",
+          "flags": [
+            "ContainerLimit"
+          ],
+          "inputs": {
+            "flat": 1048576
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 107,
+          "comment": "array of 2^20 + 1 items",
+          "flags": [
+            "ContainerLimit"
+          ],
+          "inputs": {
+            "flat": 1048577
+          },
+          "expect": "Limit"
+        },
+        {
+          "tcId": 108,
+          "comment": "exactly 2^22 items in one document",
+          "flags": [
+            "TotalItemLimit"
+          ],
+          "inputs": {
+            "inner": [
+              1048575,
+              1048575,
+              1048575,
+              1048574
+            ]
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 109,
+          "comment": "2^22 + 1 items in one document",
+          "flags": [
+            "TotalItemLimit"
+          ],
+          "inputs": {
+            "inner": [
+              1048575,
+              1048575,
+              1048575,
+              1048575
+            ]
+          },
+          "expect": "Limit"
+        }
+      ]
+    }
+  ],
+  "numberOfTests": 109
+}

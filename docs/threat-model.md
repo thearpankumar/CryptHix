@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | v0.3, Phase 0 baseline after persona review and the format spec, pre-code |
+| Status | v0.3, Phase 0 baseline after persona review and the format spec; first code (`crypthix-types`) landed |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Covers | Phases 1–4 in detail, Phase 5 in outline ([roadmap](project-vision.md#14-roadmap)) |
@@ -926,6 +926,7 @@ A window is a known gap between when a feature ships and when the feature that p
 | OQ-14 | Does `getxattr` on secret classes leak class labels or canary markers? | A1 (P2), with M-23 |
 | OQ-15 | Pack size classes and packing policy for small commits ([format spec 22](format-spec.md#22-open-items)) | MVP benchmarks (P2) |
 | OQ-16 | Recovery text wordlist (SLIP-39 or BIP-39) and an optional QR code | CLI v0 (P1) |
+| OQ-17 | Should text strings also forbid other invisible characters (U+2028, U+2029, U+200B, U+FEFF, tag characters), or all of Unicode category Cf ([format spec 22](format-spec.md#22-open-items))? | Format 1 freeze at the external audit |
 
 Decisions already taken (2026-10-29): the daemon runs as its own system user (M-15), with a root helper that mounts, loads BPF-LSM and brokers identity (M-20, M-21); A14 uses passphrase or polkit in 0.1 and moves to M-5; per-device signing keys and TPM-protected device keys are format requirements (M-14); new mitigations stay as M- IDs attached to existing backlog items.
 

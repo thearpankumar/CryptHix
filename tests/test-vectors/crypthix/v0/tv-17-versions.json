@@ -1,0 +1,341 @@
+{
+  "set": "TV-17",
+  "structure": "versions-criticality-features",
+  "formatVersion": 0,
+  "suiteId": 1,
+  "generator": "hand-written (crypthix-vector-gen reproduces it)",
+  "knownFeatures": "Features::EMPTY (a Phase 1 reader knows no feature bits)",
+  "notes": {
+    "NonCriticalKey": {
+      "cites": [
+        "FS-20",
+        "M-33"
+      ],
+      "description": "An unknown non-negative key is ignored for meaning and kept"
+    },
+    "CriticalKey": {
+      "cites": [
+        "FS-09",
+        "FS-20",
+        "M-33",
+        "T-78"
+      ],
+      "description": "An unknown negative key rejects the structure"
+    },
+    "GreaseKey": {
+      "cites": [
+        "FS-22",
+        "M-33"
+      ],
+      "description": "GREASE keys of either sign are never critical"
+    },
+    "FeatureBits": {
+      "cites": [
+        "FS-21",
+        "M-33",
+        "T-78"
+      ],
+      "description": "compat ignored; ro_compat blocks writes; incompat blocks reads"
+    },
+    "GreaseBit": {
+      "cites": [
+        "FS-22",
+        "M-33"
+      ],
+      "description": "GREASE bits 42, 58 and 63 are ignored"
+    },
+    "UnknownVersion": {
+      "cites": [
+        "FS-16",
+        "FS-19",
+        "M-33",
+        "T-78"
+      ],
+      "description": "No fallback to another format, suite or struct version"
+    },
+    "GreaseValue": {
+      "cites": [
+        "FS-22",
+        "M-33"
+      ],
+      "description": "A GREASE value where only assigned values are valid"
+    }
+  },
+  "testGroups": [
+    {
+      "type": "MapKeys",
+      "tests": [
+        {
+          "tcId": 1,
+          "comment": "unknown non-critical key 1",
+          "flags": [
+            "NonCriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a10100",
+            "known": []
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 2,
+          "comment": "unknown non-critical key 4096, outside safe-to-copy",
+          "flags": [
+            "NonCriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a1191000f6",
+            "known": []
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 3,
+          "comment": "unknown critical key -2",
+          "flags": [
+            "CriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a12100",
+            "known": []
+          },
+          "expect": "UnknownCritical"
+        },
+        {
+          "tcId": 4,
+          "comment": "unknown critical key -1 after a known key",
+          "flags": [
+            "CriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a2010020f5",
+            "known": [
+              1
+            ]
+          },
+          "expect": "UnknownCritical"
+        },
+        {
+          "tcId": 5,
+          "comment": "every critical key known",
+          "flags": [
+            "CriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a2010020f5",
+            "known": [
+              1,
+              -1
+            ]
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 6,
+          "comment": "positive GREASE key 0x0A0A",
+          "flags": [
+            "GreaseKey"
+          ],
+          "inputs": {
+            "cbor": "a1190a0a00",
+            "known": []
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 7,
+          "comment": "negative GREASE key -0x0A0A is not critical",
+          "flags": [
+            "GreaseKey"
+          ],
+          "inputs": {
+            "cbor": "a1390a0900",
+            "known": []
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 8,
+          "comment": "negative GREASE key -0xFAFA is not critical",
+          "flags": [
+            "GreaseKey"
+          ],
+          "inputs": {
+            "cbor": "a139faf900",
+            "known": []
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 9,
+          "comment": "-0x0A0B is not GREASE and is critical",
+          "flags": [
+            "GreaseKey",
+            "CriticalKey"
+          ],
+          "inputs": {
+            "cbor": "a1390a0a00",
+            "known": []
+          },
+          "expect": "UnknownCritical"
+        }
+      ]
+    },
+    {
+      "type": "Features",
+      "tests": [
+        {
+          "tcId": 10,
+          "comment": "no bits",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "0",
+            "roCompat": "0",
+            "incompat": "0",
+            "mode": "read"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 11,
+          "comment": "unknown compat bit 7 on write",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "128",
+            "roCompat": "0",
+            "incompat": "0",
+            "mode": "write"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 12,
+          "comment": "unknown ro_compat bit 0 (log) on read",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "0",
+            "roCompat": "1",
+            "incompat": "0",
+            "mode": "read"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 13,
+          "comment": "unknown ro_compat bit 0 (log) on write",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "0",
+            "roCompat": "1",
+            "incompat": "0",
+            "mode": "write"
+          },
+          "expect": "Feature"
+        },
+        {
+          "tcId": 14,
+          "comment": "unknown incompat bit 3 (several writers) on read",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "0",
+            "roCompat": "0",
+            "incompat": "8",
+            "mode": "read"
+          },
+          "expect": "Feature"
+        },
+        {
+          "tcId": 15,
+          "comment": "unknown incompat bit 41 on read",
+          "flags": [
+            "FeatureBits"
+          ],
+          "inputs": {
+            "compat": "0",
+            "roCompat": "0",
+            "incompat": "2199023255552",
+            "mode": "read"
+          },
+          "expect": "Feature"
+        },
+        {
+          "tcId": 16,
+          "comment": "GREASE bits in every set on write",
+          "flags": [
+            "FeatureBits",
+            "GreaseBit"
+          ],
+          "inputs": {
+            "compat": "9511606811052998656",
+            "roCompat": "9511606811052998656",
+            "incompat": "9511606811052998656",
+            "mode": "write"
+          },
+          "expect": "Ok"
+        }
+      ]
+    },
+    {
+      "type": "PreambleVersions",
+      "tests": [
+        {
+          "tcId": 17,
+          "comment": "GREASE format version",
+          "flags": [
+            "UnknownVersion",
+            "GreaseValue"
+          ],
+          "inputs": {
+            "file": "894348580d0a1a0a1a1a00010301000000000000"
+          },
+          "expect": "UnsupportedFormat"
+        },
+        {
+          "tcId": 18,
+          "comment": "GREASE suite",
+          "flags": [
+            "UnknownVersion",
+            "GreaseValue"
+          ],
+          "inputs": {
+            "file": "894348580d0a1a0a00001a1a0301000000000000"
+          },
+          "expect": "UnsupportedSuite"
+        },
+        {
+          "tcId": 19,
+          "comment": "suite 0x0002",
+          "flags": [
+            "UnknownVersion"
+          ],
+          "inputs": {
+            "file": "894348580d0a1a0a000000020301000000000000"
+          },
+          "expect": "UnsupportedSuite"
+        },
+        {
+          "tcId": 20,
+          "comment": "struct version 2 of a known type",
+          "flags": [
+            "UnknownVersion"
+          ],
+          "inputs": {
+            "file": "894348580d0a1a0a000000010302000000000000"
+          },
+          "expect": "UnsupportedStruct"
+        }
+      ]
+    }
+  ],
+  "numberOfTests": 20
+}

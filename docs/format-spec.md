@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | Format 0, draft v0.3 after two rounds of persona review, pre-code. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
+| Status | Format 0, draft v0.4 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Format / suite | Format version `0x0000`, suite `0x0001` |
@@ -192,6 +192,7 @@ flowchart TB
 | `device_id` | 16 | `getrandom` at enrolment | Yes: certificates, device set, root |
 | `object_id`, `dek_id`, `pack_id` | 16 | `getrandom` | No |
 | `slot_id`, `share_set_id` | 16 | `getrandom` | Yes: share slots |
+| `sender_id` | 16 | `getrandom`, per daemon component (a `device_id` on the bus) | Device-local: queue job names and envelopes ([16](#16-queue-job-envelope)) |
 | `blob_id` (data, ordinary class) | 32 | `MAC(K_blobid, chunk plaintext)`, keyed per object | No |
 | `blob_id` (data, secret class; meta) | 32 | `getrandom` | No |
 | `shard_id` | 32 | `H(hash/shard-id, whole shard file)` | Yes: file name |
@@ -274,7 +275,7 @@ Every file starts with a 20-byte preamble in clear. Its first 16 bytes are part 
 
 **FS-06.** A file whose first 8 bytes are not the magic is rejected (`Magic`). An unknown file type, a nested type used as a file, or a private-use type read from a backend is rejected (`UnknownType`). The type MUST match the type implied by the file's path ([FS-92](#18-directory-layout), `NameMismatch`).
 
-**FS-07.** `flags` MUST be zero (`Flags`). `body_len` MUST NOT exceed the maximum for the type, checked right after reading the preamble (`Limit`), and MUST equal the number of bytes that follow; extra bytes are `TrailingBytes` and missing bytes are `Truncated`.
+**FS-07.** `flags` MUST be zero (`Flags`). `body_len` MUST NOT exceed the maximum for the type, checked right after reading the preamble (`Limit`), and MUST equal the number of bytes that follow; extra bytes are `TrailingBytes` and missing bytes are `Truncated`. A reader checks the preamble in this order and reports the first failure (FS-93): magic (`Magic`; a file shorter than the magic that matches it so far is `Truncated`), 20 bytes present (`Truncated`), `fmt` (`UnsupportedFormat`), `suite` (`UnsupportedSuite`), `typ` (`UnknownType`), `sv` (`UnsupportedStruct`), `flags` (`Flags`), `body_len` against the cap (`Limit`), then the actual body length.
 
 ### 5.2 Deterministic CBOR
 
@@ -284,7 +285,7 @@ Bodies are CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) except wher
 
 **FS-09.** Maps use integer keys in the range −2^31 to 2^31 − 1. A **negative** key is *critical*: a reader that does not know it MUST reject the file (`UnknownCritical`). A key of 0 or more is *non-critical* ([FS-20](#6-versioning-and-no-downgrade)). Integer values are unsigned 64-bit unless a table says otherwise; negative integers below −2^63 are rejected (`Schema`).
 
-**FS-10.** Text strings MUST be valid UTF-8 (RFC 8949 §5.3.1) and MUST NOT contain C0 or C1 control characters or bidirectional formatting characters (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069); `.size` limits count bytes. An optional field is encoded by leaving its key out, never as `null`; `null` is allowed only where a schema says `/ null`. A value of the wrong type, a missing required key, a wrong size or an out-of-range enum value is `Schema`. Paths are byte strings, never text strings.
+**FS-10.** Text strings MUST be valid UTF-8 (RFC 8949 §5.3.1) and MUST NOT contain control characters (Unicode category Cc: C0, DEL and C1) or bidirectional formatting characters (U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069); `.size` limits count bytes. An optional field is encoded by leaving its key out, never as `null`; `null` is allowed only where a schema says `/ null`. A value of the wrong type, a missing required key, a wrong size or an out-of-range enum value is `Schema`. Paths are byte strings, never text strings.
 
 **FS-11.** Limits, checked before any allocation (T-39):
 
@@ -293,14 +294,14 @@ Bodies are CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) except wher
 | `body_len` per file type | Table in [5.1](#51-preamble) |
 | One CBOR document | 16 MiB |
 | Nesting depth | 8 |
-| Items in one array or map | 2^20, and pre-allocation never above `min(declared, remaining bytes)` |
-| Items in one document, counted recursively | 2^22 |
+| Items in one array, or entries in one map | 2^20, and pre-allocation never above `min(declared, remaining bytes)` |
+| Items in one document, counted recursively | 2^22; every head counts once, containers included, so a map entry counts as two |
 | One byte string | 16 MiB |
 | Decompressed chunk | `plain_len` from the manifest, at most 1 MiB ([FS-53](#102-compression)) |
 | Tree fan-out (index, key-table, location and pack-table nodes) | 4,096 entries per node |
 | Tree depth | 16 |
 
-Exceeding a limit is `Limit`.
+Exceeding a limit is `Limit`. A declared string length or container count larger than the bytes left in the document is `Limit` too, decided at that item's head, before anything is read or allocated for it; input that ends inside a head is `Truncated`.
 
 ### 5.3 AAD, KDF context and signature input
 
@@ -372,7 +373,7 @@ sig_input = u8 len(type_label) ‖ type_label ‖ ctx[16] ‖ signer[32] ‖ u64
 | 3 | `incompat` | Several devices may write | *Reserved P4* |
 | 42, 58, 63 | any | GREASE ([FS-22](#6-versioning-and-no-downgrade)) | — |
 
-**FS-22.** GREASE ([RFC 8701](https://www.rfc-editor.org/rfc/rfc8701)). Every value of the form `0x?A?A` (16 values: `0x0A0A`, `0x1A1A`, … `0xFAFA`) is reserved in every 16-bit-or-wider integer registry (map keys, in both their positive and negative form, and log kinds) and MUST NOT be assigned; a negative GREASE key is ignored like a positive one, not treated as critical; bit numbers 42, 58 and 63 are reserved the same way in capability and feature bit sets. Readers MUST ignore GREASE map keys and GREASE bits, and MUST skip log entries of a GREASE kind. An unknown non-GREASE capability bit grants nothing. An unknown non-GREASE log kind is kept and shown as unknown. Test writers emit GREASE values at random and TV-17 includes them, so a reader that rejects them fails its tests.
+**FS-22.** GREASE ([RFC 8701](https://www.rfc-editor.org/rfc/rfc8701)). Every value of the form `0x?A?A` (16 values: `0x0A0A`, `0x1A1A`, … `0xFAFA`) is reserved in every 16-bit-or-wider integer registry (map keys, in both their positive form v and their negative form −v, and log kinds) and MUST NOT be assigned; a negative GREASE key is ignored like a positive one, not treated as critical; bit numbers 42, 58 and 63 are reserved the same way in capability and feature bit sets. Readers MUST ignore GREASE map keys and GREASE bits, and MUST skip log entries of a GREASE kind. A GREASE map entry is ignored for meaning only: it stays among the unknown entries, so the structure re-encodes to exactly its bytes (FS-08) and FS-20 decides whether a rewrite keeps it. An unknown non-GREASE capability bit grants nothing. An unknown non-GREASE log kind is kept and shown as unknown. Test writers emit GREASE values at random and TV-17 includes them, so a reader that rejects them fails its tests.
 
 **FS-23.** There is no in-place migration. A new format is reached by copying: read every object under the old format, write it into a new vault root under a new epoch and the new format, then raise `min_format_version` (the model of `borg transfer`).
 
@@ -974,7 +975,7 @@ The entry's `class` and `object_version` MUST equal the manifest's (`Binding`). 
 
 ### 13.1 Vault config
 
-`store/config.chx`, file type `0x01`, a signed envelope (`sig/config`) by the master key. It is the only file a new machine can check with nothing but `vault_id`.
+`store/configs/<config_seq>.chx`, file type `0x01`, a signed envelope (`sig/config`) by the master key. It is the only file a new machine can check with nothing but `vault_id`. Configs are immutable, like every file a root commits to: a change writes a new config under the next `config_seq` before the first root that names it, so a crash in between leaves the current root and its config intact. A reader takes the config whose hash the current root names; a reader without a root takes the highest valid `config_seq`. Garbage collection removes a config once no retained root names it.
 
 | Key | Field | Size | Enc | Phase |
 | --- | --- | --- | --- | --- |
@@ -1192,7 +1193,7 @@ sequenceDiagram
     Note over W,S: A crash before the link leaves the old root current<br/>and the new shards unreferenced, to be collected later
 ```
 
-**FS-87.** A commit follows the order above (M-44, T-90).
+**FS-87.** A commit follows the order above (M-44, T-90). Every file a root commits to (configs, key files other than share slots, device certificates and sets, shards) is written once under a new name and never replaced; only share slots are replaced in place, and that gives no rollback protection.
 - **Shards.** Shards are immutable and content-addressed. Creating a new `shards/<2 hex>/` directory also fsyncs its parent.
 - **Root.** The new root is written to a temporary file and fsynced. It is then given its name with `linkat()` or `renameat2(RENAME_NOREPLACE)`, which fails if `roots/<seq+1>` exists; that failure is the compare-and-swap, and the commit is retried on top of the newer root. `O_EXCL` followed by a write MUST NOT be used, since a crash would leave a truncated root that blocks the sequence.
 - **Probe.** `init` checks that the store supports no-replace links and refuses a store that does not.
@@ -1224,14 +1225,14 @@ Further rules:
 **FS-92.** The daemon's system user (M-15) owns everything below, mode `0700` for directories and `0600` for files. `store/` holds exactly what a backend holds; the local backend is this folder. `device/` never leaves the machine. `config/` changes only through the API (M-7). Names follow these rules:
 - Hex is lowercase and of full length, and `<2 hex>` equals the first two characters of the name.
 - Numbers are decimal without leading zeros, except `roots/` names, which are 20 digits.
-- The value in a name (root_seq, epoch, gen, slot_id, device_id, device_set_seq, shard_id) MUST equal the value in the file (`NameMismatch`).
-- Readers open store files with `O_NOFOLLOW` and ignore names that do not match a pattern.
+- The value in a name (config_seq, root_seq, epoch, gen, slot_id, device_id, device_set_seq, shard_id) MUST equal the value in the file (`NameMismatch`).
+- Readers open store files with `O_NOFOLLOW` and ignore names that do not match a pattern. A name that matches a pattern's shape (the right directory, prefix and kind of digits) but is not canonical, such as uppercase hex, a leading zero, a root name that is not 20 digits, a zero value or a fan-out directory that differs from the name, is `NameMismatch`.
 
 ```text
 /var/lib/crypthix/                         crypthix:crypthix 0700
   <vault-id hex>/
     store/                                 everything a backend stores
-      config.chx
+      configs/<config_seq>.chx
       roots/<root_seq, 20 digits>.chx
       keys/
         slot-<slot_id hex>.chx
@@ -1271,7 +1272,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `NameMismatch` | FS-06, FS-92 | File name or path does not match the content |
 | `Flags` | FS-07 | Non-zero preamble flags |
 | `TrailingBytes` | FS-07 | Bytes past `body_len` |
-| `Truncated` | FS-07 | File shorter than declared |
+| `Truncated` | FS-07, FS-11 | File shorter than declared, or input ending inside a CBOR head |
 | `Limit` | FS-07, FS-11 | A size, count, depth or fan-out limit exceeded |
 | `NonCanonical` | FS-08 | CBOR not in deterministic form |
 | `Schema` | FS-09, FS-10 | Wrong type, missing key, wrong size, bad enum, invalid text, misplaced null |
@@ -1313,7 +1314,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `Audience` | FS-86 | Job for another vault or recipient |
 | `Replay` | FS-86 | Job sequence number not above the last seen |
 
-**FS-93.** Every failure maps to exactly one error from this table: the first failing check in the order the rules give. No plaintext is released from a chunk before its commitment, tag and blob ID verify, and no file content is released before the chunk list of that read verifies (SP-C2).
+**FS-93.** Every failure maps to exactly one error from this table: the first failing check in the order the rules give. In a CBOR document, items are checked in byte order, so the first item that breaks any rule decides; at one head, its encoding (FS-08: `Truncated`, `NonCanonical`, including a tag, float or simple value used as a map key) comes before the key rules of FS-09 (`Schema`), and those before the item's own rules and limits. Schema checks of a structure (missing keys, wrong types, `UnknownCritical`) run only on a document that passed. No plaintext is released from a chunk before its commitment, tag and blob ID verify, and no file content is released before the chunk list of that read verifies (SP-C2).
 
 ---
 
@@ -1407,6 +1408,8 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | Non-canonical CBOR inside a byte string | TV-03 | `NonCanonical` | FS-08 |
 | Key above 2^31; invalid UTF-8; bidi character in a name; null where not allowed | TV-03 | `Schema` | FS-09, FS-10 |
 | Depth 8 accepted; depth 9 rejected; declared length over remaining bytes | TV-03 | `Ok`, `Limit` | FS-11, T-39 |
+| Tag, float or simple value as a map key; two bad items, the first by position decides | TV-03 | `NonCanonical`, first error | FS-08, FS-93, T-83 |
+| Exactly 2^20 items in an array and 2^22 in a document; one more | TV-03 | `Ok`, `Limit` | FS-11, T-39 |
 | Key, nonce or any AAD field changed | TV-05 | `Commitment` | FS-28, M-9, T-36 |
 | Ciphertext or tag changed | TV-05 | `AeadTag` | FS-28 |
 | Same key and ciphertext opened with another nonce or AAD | TV-05 | `Commitment` | FS-27, M-9 |
@@ -1526,8 +1529,9 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | --- | --- | --- |
 | OQ-15 | Pack size classes, packing window and compaction threshold for small commits | MVP benchmarks (P2) |
 | OQ-16 | Recovery text: whether to offer a QR code (opt-in; a photo of the sheet is the root in P1). The wordlist is settled as SLIP-39 | CLI v0 (P1) |
+| OQ-17 | FS-10: whether to also forbid other invisible characters in text (U+2028, U+2029, U+200B, U+FEFF, tag characters U+E0000–U+E007F), or all of category Cf | Format 1 freeze at the external audit |
 
-Both are tracked in [threat-model section 14](threat-model.md#14-open-questions).
+All three are tracked in [threat-model section 14](threat-model.md#14-open-questions).
 
 ---
 
@@ -1535,9 +1539,10 @@ Both are tracked in [threat-model section 14](threat-model.md#14-open-questions)
 
 | Version | Date | Change |
 | --- | --- | --- |
-| v0.1 | 2026-10-29 | First draft of format 0 |
+| v0.4 | 2026-10-29 | From implementing `crypthix-types` and four persona reviews of it. Configs are immutable and named `configs/<config_seq>.chx`, since a config replaced in place broke crash safety (FS-87); only share slots are replaced in place. Clarifications that change no valid bytes: preamble check order (FS-07); `Limit` versus `Truncated` for short input and how items are counted (FS-11); control characters are Unicode Cc including DEL (FS-10); the negative GREASE key is −v and GREASE entries are kept for exact re-encoding (FS-22); byte-order error precedence, with a tag, float or simple value as a key being `NonCanonical` (FS-93); non-canonical store names of a known shape are `NameMismatch` (FS-92); `sender_id` added to 4.1 |
 | v0.3 | 2026-10-29 | Second round of four persona reviews (malicious-server cryptanalyst, Rust implementer, plan-conformance auditor, privacy and recovery engineer). Root rotation now also replaces the master key, `vault_id`, epoch and device set; config pins a minimum device set; SIV shard-header nonces; slot AAD covers every clear key; no reuse for single-chunk files; passphrase-change and deletion limits stated, with a `shred` operation and deletion horizon; GC candidates in meta blobs and padded root; recovery sheet metadata and vault-bound checksum; byte-exact CDDL for trees and references, Padmé formula, zstd and FastCDC parameters; opaque `Decrypt` error; leakage list completed |
 | v0.2 | 2026-10-29 | Four persona reviews merged (applied cryptographer, parser engineer, storage engineer, auditor). CX-AEAD keys HKDF-Expand directly. Shares move to the Ristretto255 scalar field, and the P1 recovery sheet is stated to be the root. Root rotation added. DEKs move to a key table and manifests are sealed under DEK-derived keys, so rotation no longer rewrites manifests. Random pack keys; location tree and located references make meta packs findable and packs compactable. No clear epoch in shards. Root creation by no-replace link; two-phase GC; feature bits. Synthetic preambles for nested envelopes; signer-first root verification; device set signed by the master key. Stricter CBOR, limits and error table. Leakage and Phase 1 limits stated. Rules renumbered FS-01 to FS-94 |
+| v0.1 | 2026-10-29 | First draft of format 0 |
 
 ---
 
@@ -1576,4 +1581,4 @@ Both are tracked in [threat-model section 14](threat-model.md#14-open-questions)
 
 **Test vectors and tools**
 - [Wycheproof](https://github.com/C2SP/wycheproof) · [CCTV](https://github.com/C2SP/CCTV)
-- Rust crates: `minicbor`, `zerocopy`, `proptest`, `cargo-fuzz` with `arbitrary`, `insta`, `hex-literal`
+- Rust crates: `proptest`, `cargo-fuzz` with `arbitrary`, `insta`, `hex-literal`; `minicbor` only as a differential fuzz oracle (no CBOR crate checks canonical form on decode, so `crypthix-types` has its own codec)
