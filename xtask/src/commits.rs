@@ -1,8 +1,8 @@
 //! `cargo xtask check-commits <base>`: commit messages follow the project style.
 //!
 //! A message is one line, `<type>[(<scope>)][!]: <summary>`, with no body and no trailers
-//! (docs/CONTRIBUTING.md). Merge commits and commits by bots are skipped: GitHub and
-//! Dependabot write their own bodies.
+//! (docs/CONTRIBUTING.md). Merge commits and commits by bots are skipped: GitHub and bots
+//! write their own bodies.
 
 use crate::pre_commit::git;
 

@@ -35,7 +35,7 @@ The API design rules are **binding for library crates** (everything under `crate
 | Commit messages | `cargo xtask check-commits <base>` | One-line `<type>: <summary>` messages ([CONTRIBUTING](CONTRIBUTING.md#commit-messages)) |
 | Spelling | `_typos.toml` | [typos](https://github.com/crate-ci/typos) over code and docs; vector data excluded |
 | Workflow lint | `.github/zizmor.yml` | actionlint and zizmor over `.github/` |
-| Toolchain | `rust-toolchain.toml` | Stable pinned to an exact release (equal to `rust-version`); fuzzing and Miri use the nightly pinned in `xtask/src/side.rs` |
+| Toolchain | `rust-toolchain.toml` | Latest stable; fuzzing and Miri use the nightly pinned in `xtask/src/side.rs` |
 | CI | `cargo xtask ci`, `.github/workflows/` | Runs all of the above with warnings as errors ([CONTRIBUTING](CONTRIBUTING.md#continuous-integration)) |
 
 Enable the pre-commit hook once per clone with `cargo xtask install-hooks`. On every commit it checks the staged changes for file hygiene (trailing whitespace, conflict markers, a final newline, files over 1 MiB), secrets ([gitleaks](https://github.com/gitleaks/gitleaks), installed with `go install github.com/zricethezav/gitleaks/v8@v8.30.1`), formatting and Clippy. The checks are written in Rust (`xtask/src/pre_commit.rs`) and the hook is one line of POSIX `sh`, so they run the same on Linux, macOS and Windows (Git for Windows' bundled shell).
