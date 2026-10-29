@@ -5,3 +5,6 @@ sections:   Appendix A.1 to A.3 (SHA-256; A.4 to A.7 are SHA-1 and are not used)
 status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
             the crypthix-crypto item, so every transcribed value is checked the day it lands.
 used by:    TV-01 (format spec FS-05)
+blobs:      git blob IDs (git hash-object) of the files here; checked
+            by `cargo xtask check-vendored`
+  6b17ae8a5472a2f08bf1975812a0ad347cf213cc  LICENSE

@@ -37,6 +37,29 @@ crypthix-gateway = { path = "crates/access/gateway" }
 # External crates.
 cargo_metadata = "0.23"
 
+# cargo-shear (`cargo xtask ci deny`): internal crates declared above before any crate uses them.
+# Remove a name once some crate depends on it, so shear checks it again.
+[workspace.metadata.cargo-shear]
+ignored = [
+    "crypthix-api",
+    "crypthix-bus",
+    "crypthix-core",
+    "crypthix-crypto",
+    "crypthix-fs",
+    "crypthix-gateway",
+    "crypthix-git",
+    "crypthix-guard",
+    "crypthix-hardening",
+    "crypthix-keys",
+    "crypthix-log",
+    "crypthix-metabolism",
+    "crypthix-policy",
+    "crypthix-snapshot",
+    "crypthix-store",
+    "crypthix-sync",
+    "crypthix-tokens",
+]
+
 [workspace.lints.rust]
 missing_docs = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }

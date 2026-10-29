@@ -1,0 +1,32 @@
+# Weekly grouped updates for both Cargo workspaces and the pinned actions. Dependabot keeps
+# the `# vX.Y.Z` comments next to action SHAs in step. The Rust toolchain (rust-toolchain.toml)
+# and the fuzz nightly (xtask/src/side.rs, the workflows) are bumped by hand.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directories:
+      - "/"
+      - "/tests"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      cargo:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directories:
+      - "/"
+      - "/.github/actions/setup"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci(deps)"

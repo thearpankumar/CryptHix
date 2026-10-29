@@ -1,0 +1,6 @@
+# zizmor settings for `cargo xtask ci lint`.
+rules:
+  # GitHub's `$/` self-repository syntax (July 2026) is not accepted by actionlint 1.7.12, the
+  # latest release, which also lints these workflows. Revisit when actionlint supports it.
+  self-repository:
+    disable: true

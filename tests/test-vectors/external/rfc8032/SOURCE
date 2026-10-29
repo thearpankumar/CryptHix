@@ -5,3 +5,6 @@ sections:   7.1 (TEST 1, 2, 3, 1024, SHA(abc))
 status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
             the crypthix-crypto item, so every transcribed value is checked the day it lands.
 used by:    TV-01 (format spec FS-05)
+blobs:      git blob IDs (git hash-object) of the files here; checked
+            by `cargo xtask check-vendored`
+  65cc3fbd9e0b4fb3e6d3ae4a0b96f03d32215dc5  LICENSE

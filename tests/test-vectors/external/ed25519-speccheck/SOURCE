@@ -9,3 +9,7 @@ licence:    Apache-2.0 (LICENSE, copied from the repository root)
 files:
   cases.json -> cases.json  (no final newline upstream; .gitattributes keeps it byte-exact)
 used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto
+blobs:      git blob IDs (git hash-object), equal to upstream's at the commit above; checked
+            by `cargo xtask check-vendored`
+  8686dcb7eef8b6abe36ca8fa9bb10de112e63774  cases.json
+  261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64  LICENSE

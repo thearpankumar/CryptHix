@@ -2,11 +2,18 @@
 
 use std::env;
 use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The cargo that runs this task, so child builds use the project's toolchain.
 pub(crate) fn cargo() -> OsString {
     env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
+}
+
+/// The repository root: xtask lives in `<root>/xtask`.
+pub(crate) fn repo_root() -> PathBuf {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir.parent().unwrap_or(manifest_dir).to_path_buf()
 }
 
 /// Runs a command with inherited output and fails with `failure` if it does not succeed.
@@ -19,5 +26,13 @@ pub(crate) fn run_status(command: &mut Command, failure: &str) -> Result<(), Str
         Ok(())
     } else {
         Err(failure.to_owned())
+    }
+}
+
+/// Checks that `command --version` runs, or fails naming the tool and how to install it.
+pub(crate) fn require_tool(command: &mut Command, name: &str, install: &str) -> Result<(), String> {
+    match command.arg("--version").output() {
+        Ok(output) if output.status.success() => Ok(()),
+        _ => Err(format!("{name} is not installed: {install}")),
     }
 }

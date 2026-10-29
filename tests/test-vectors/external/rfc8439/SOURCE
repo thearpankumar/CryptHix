@@ -5,3 +5,6 @@ sections:   2.8.2 (AEAD example), A.5 (AEAD decryption)
 status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
             the crypthix-crypto item, so every transcribed value is checked the day it lands.
 used by:    TV-01 (format spec FS-05)
+blobs:      git blob IDs (git hash-object) of the files here; checked
+            by `cargo xtask check-vendored`
+  fbcef4e68751138e62c173e0ac7d95d949e661f7  LICENSE

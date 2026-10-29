@@ -30,19 +30,21 @@ The API design rules are **binding for library crates** (everything under `crate
 | Test vectors | `cargo xtask vectors --check` | The committed vectors match the generator byte for byte ([format spec FS-94](format-spec.md#20-test-vectors)) |
 | `tests/` workspace | `cargo xtask test-extra` | Vector schema, external vectors, generator check and fuzz replay on stable, then cargo-deny with `tests/deny.toml` |
 | Fuzzing | `cargo xtask fuzz <target \| all>` | cargo-fuzz on nightly, seeded from the vectors ([Testing](#testing)) |
-| CI | `.github/workflows/ci.yml` | Runs all of the above with warnings as errors |
+| Docs check | `cargo xtask check-docs` | Relative links and anchors in every tracked Markdown file; `FS-`, `TV-`, `M-` and `T-` IDs cited in the docs and vectors are defined |
+| Vendored vectors | `cargo xtask check-vendored` | Each file under `tests/test-vectors/external/` has the git blob ID its SOURCE records |
+| Commit messages | `cargo xtask check-commits <base>` | One-line `<type>: <summary>` messages ([CONTRIBUTING](CONTRIBUTING.md#commit-messages)) |
+| Spelling | `_typos.toml` | [typos](https://github.com/crate-ci/typos) over code and docs; vector data excluded |
+| Workflow lint | `.github/zizmor.yml` | actionlint and zizmor over `.github/` |
+| Toolchain | `rust-toolchain.toml` | Stable pinned to an exact release (equal to `rust-version`); fuzzing and Miri use the nightly pinned in `xtask/src/side.rs` |
+| CI | `cargo xtask ci`, `.github/workflows/` | Runs all of the above with warnings as errors ([CONTRIBUTING](CONTRIBUTING.md#continuous-integration)) |
 
 Enable the pre-commit hook once per clone with `cargo xtask install-hooks`. On every commit it checks the staged changes for file hygiene (trailing whitespace, conflict markers, a final newline, files over 1 MiB), secrets ([gitleaks](https://github.com/gitleaks/gitleaks), installed with `go install github.com/zricethezav/gitleaks/v8@v8.30.1`), formatting and Clippy. The checks are written in Rust (`xtask/src/pre_commit.rs`) and the hook is one line of POSIX `sh`, so they run the same on Linux, macOS and Windows (Git for Windows' bundled shell).
 
-Run everything locally before pushing:
+Run everything CI runs, locally, before pushing:
 
 ```bash
 cargo fmt --all
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo xtask check-layers
-cargo deny check
-cargo xtask test-extra
+cargo xtask ci
 ```
 
 Every crate inherits the shared lints with `[lints] workspace = true`. Create new crates with `cargo new` inside a group folder (for example `cargo new --lib --name crypthix-foo crates/engine/foo`); Cargo then inherits the workspace package fields and lints automatically.

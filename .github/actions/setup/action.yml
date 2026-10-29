@@ -1,0 +1,39 @@
+# Shared job setup: the pinned toolchain, the build cache and prebuilt tools.
+name: Set up Rust
+description: Install the toolchain from rust-toolchain.toml, restore the build cache and install tools.
+
+inputs:
+  cache-key:
+    description: One cache per kind of job; clippy, test and doc artifacts are not interchangeable.
+    required: true
+  workspaces:
+    description: rust-cache workspaces, as `<dir> -> <target dir>` lines.
+    default: ". -> target"
+  tools:
+    description: Comma-separated `tool@version` list for taiki-e/install-action.
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # rustup 1.28+ installs the toolchain named in rust-toolchain.toml, with its components.
+    - name: Install the pinned toolchain
+      shell: bash
+      run: |
+        rustup toolchain install
+        rustc --version
+        cargo --version
+
+    # PR runs restore master's cache but never save, so a PR cannot poison it.
+    - name: Restore the build cache
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        workspaces: ${{ inputs.workspaces }}
+        save-if: ${{ github.ref == 'refs/heads/master' }}
+
+    - name: Install tools
+      if: inputs.tools != ''
+      uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+      with:
+        tool: ${{ inputs.tools }}

@@ -1,0 +1,16 @@
+# Changes to the gates themselves need the maintainer's review: CI, dependency and licence
+# policy, secret scanning, the toolchain, the repository tooling and the lockfiles.
+/.github/              @thearpankumar
+/.config/              @thearpankumar
+/.cargo/               @thearpankumar
+/.githooks/            @thearpankumar
+/.gitattributes        @thearpankumar
+/.gitleaks.toml        @thearpankumar
+/_typos.toml           @thearpankumar
+/deny.toml             @thearpankumar
+/tests/deny.toml       @thearpankumar
+/rust-toolchain.toml   @thearpankumar
+/Cargo.lock            @thearpankumar
+/tests/Cargo.lock      @thearpankumar
+/xtask/                @thearpankumar
+/tests/test-vectors/   @thearpankumar

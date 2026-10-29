@@ -23,7 +23,7 @@ Never edit a file under `crypthix/` by hand. Change the set in `gen/src/tv<NN>.r
 
 ```bash
 cargo xtask vectors          # rewrite the files
-cargo xtask vectors --check  # the check CI will run: fails if a committed file differs
+cargo xtask vectors --check  # what CI runs: fails if a committed file differs
 cargo xtask test-extra       # schema, external vectors and fuzz replay
 ```
 

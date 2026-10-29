@@ -9,3 +9,9 @@ files:
   testvectors_v1/ed25519_test.json            -> ed25519_test.json            (schema eddsa_verify_schema_v1.json)
   testvectors_v1/hkdf_sha256_test.json        -> hkdf_sha256_test.json        (schema hkdf_test_schema_v1.json)
 used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto
+blobs:      git blob IDs (git hash-object), equal to upstream's at the commit above; checked
+            by `cargo xtask check-vendored`
+  3f991dd56496129e3a99b6b486408ef8f3df6945  ed25519_test.json
+  5486a4d9d12c0b6f08c2dcc9edf10266a5ca806d  hkdf_sha256_test.json
+  7a4a3ea2424c09fbe48d455aed1eaa94d9124835  LICENSE
+  3e589690473059c7589d232ef11df7466feb8159  xchacha20_poly1305_test.json

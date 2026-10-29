@@ -1,0 +1,310 @@
+# Nightly jobs skip the weekly cron ("47 3 * * 1") so Mondays do not run them twice.
+#
+# Long and broad checks kept off the PR path: deep fuzzing and property tests, Miri, fresh
+# advisories, other platforms and coverage every night; full mutation testing, links, the full
+# secret history and a runner capability probe every week.
+#
+# A PR that edits this file runs it too, with short time limits, so changes are tested before
+# they reach the schedule.
+name: Scheduled
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # nightly
+    - cron: "47 3 * * 1" # weekly, Mondays
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/scheduled.yml"
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+  NEXTEST_PROFILE: ci
+  RUST_BACKTRACE: short
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - preamble
+          - cbor_document
+          - cbor_differential
+          - cbor_structured
+          - store_key
+          - config_toml
+          - id_text
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: fuzz
+          workspaces: |
+            . -> target
+            tests -> target
+          tools: cargo-fuzz@0.13.2
+      - name: Install the pinned nightly
+        run: rustup toolchain install nightly-2026-10-15 --profile minimal
+      # Each night starts from the previous night's corpus.
+      - name: Restore the corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: tests/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '1200' || '30' }}
+        run: cargo xtask fuzz "$TARGET" --time "$SECONDS_PER_TARGET"
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: tests/fuzz/artifacts/
+          if-no-files-found: ignore
+
+  deep-tests:
+    name: Deep property tests (release)
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: release
+      # Release builds turn overflow checks off, so this also catches code that only works
+      # because a debug build would panic first.
+      - name: Property tests at 4096 cases, release profile
+        env:
+          PROPTEST_CASES: "4096"
+        run: cargo test --workspace --all-features --release --locked
+      - name: Benchmarks build
+        run: cargo bench --workspace --no-run --locked
+
+  miri:
+    name: Miri (crypthix-types)
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned nightly with Miri
+        run: |
+          rustup toolchain install nightly-2026-10-15 --profile minimal --component miri,rust-src
+          rustup run nightly-2026-10-15 cargo miri setup
+      # Miri runs each test case thousands of times slower; a few property cases suffice.
+      - name: cargo miri test
+        env:
+          PROPTEST_CASES: "8"
+        run: rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
+
+  advisories:
+    name: Fresh advisories
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny@0.20.2
+      # New RustSec advisories against the committed lockfiles, with no PR to trigger them.
+      - run: cargo deny --locked check advisories
+      - run: cargo deny --manifest-path tests/Cargo.toml --config tests/deny.toml --locked check advisories
+
+  platforms:
+    name: Test on ${{ matrix.os }}
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: platform
+      # xtask is deliberately cross-platform: the pre-commit hook runs it on every OS.
+      - run: cargo test --workspace --all-features --locked
+
+  coverage:
+    name: Coverage
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: coverage
+          tools: cargo-llvm-cov@0.9.1
+      - name: Install llvm-tools
+        run: rustup component add llvm-tools
+      # A report, not a gate: mutation testing is the better measure of test strength.
+      - name: Measure
+        run: |
+          cargo llvm-cov --workspace --all-features --locked --lcov --output-path lcov.info
+          {
+            echo '## Coverage'
+            echo '```'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: lcov.info
+
+  mutants:
+    name: Mutants shard ${{ matrix.shard }}/4
+    if: github.event.schedule == '47 3 * * 1' || github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: mutants
+          tools: cargo-mutants@27.1.0,cargo-nextest@0.9.148
+      # On a PR that edits this file, only list the mutants to check the wiring.
+      - name: Mutate
+        env:
+          SHARD: ${{ matrix.shard }}
+          LIST_ONLY: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$LIST_ONLY" = true ]; then
+            cargo mutants --workspace --shard "$SHARD/4" --list | wc -l
+          else
+            cargo mutants --workspace --shard "$SHARD/4" --in-place --test-tool nextest
+          fi
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-out-${{ matrix.shard }}
+          path: mutants.out/
+          if-no-files-found: ignore
+
+  links:
+    name: External links
+    if: github.event.schedule == '47 3 * * 1' || github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Relative links and anchors are checked on every PR by `cargo xtask check-docs`.
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --no-progress --scheme https --scheme http "./**/*.md"
+          fail: true
+          token: ${{ github.token }}
+
+  secrets-history:
+    name: Secrets (full history)
+    if: github.event.schedule == '47 3 * * 1' || github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan every commit
+        run: |
+          "$RUNNER_TEMP/gitleaks" git --redact --no-banner --log-level warn
+
+  # What later phases can test on hosted runners: key memory, FUSE, Landlock, KVM.
+  runner-probe:
+    name: Runner capability probe
+    if: github.event.schedule == '47 3 * * 1' || github.event_name != 'schedule'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - name: Probe
+        env:
+          RUNNER_LABEL: ${{ matrix.os }}
+        run: |
+          {
+            echo "## Runner probe: $RUNNER_LABEL"
+            echo '```'
+            echo "kernel:        $(uname -r) ($(uname -m))"
+            echo "cmdline:       $(cat /proc/cmdline)"
+            echo "memlock:       $(ulimit -l)"
+            echo "lsm:           $(cat /sys/kernel/security/lsm 2>/dev/null || echo unreadable)"
+            echo "secretmem:     $(grep -o 'secretmem[^ ]*' /proc/cmdline || echo 'no boot flag')"
+            python3 -c 'import ctypes,os; r=ctypes.CDLL(None,use_errno=True).syscall(447,0); print("memfd_secret:  " + ("works" if r>=0 else os.strerror(ctypes.get_errno())))'
+            echo "fuse device:   $(ls -l /dev/fuse 2>/dev/null || echo missing)"
+            echo "kvm device:    $(ls -l /dev/kvm 2>/dev/null || echo missing)"
+            echo "userns limit:  $(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"
+            echo "cgroup:        $(stat -fc %T /sys/fs/cgroup)"
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
