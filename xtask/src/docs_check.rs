@@ -362,6 +362,37 @@ mod tests {
     }
 
     #[test]
+    fn normalize_keeps_leading_parent_components() {
+        assert_eq!(
+            normalize(Path::new("../README.md")),
+            PathBuf::from("../README.md")
+        );
+    }
+
+    #[test]
+    fn broken_links_and_anchors_are_reported() {
+        // Real paths, so the existence check passes; the texts stand in for their contents.
+        let texts: HashMap<String, String> = [
+            (
+                "docs/style-guide.md".to_owned(),
+                "[a](missing.md) [b](backlog.md#nope) [c](backlog.md#real-heading) [d](#local)\n\
+                 # Local\n"
+                    .to_owned(),
+            ),
+            ("docs/backlog.md".to_owned(), "# Real heading\n".to_owned()),
+        ]
+        .into();
+        let mut problems = Vec::new();
+        check_links(&repo_root(), &texts, &mut problems);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].contains("missing docs/missing.md"),
+            "{problems:?}"
+        );
+        assert!(problems[1].contains("#nope"), "{problems:?}");
+    }
+
+    #[test]
     fn the_committed_docs_pass() {
         assert_eq!(check(), Ok(()), "the docs have broken links or IDs");
     }

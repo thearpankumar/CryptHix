@@ -161,6 +161,40 @@ mod tests {
     }
 
     #[test]
+    fn non_hex_ids_are_not_blobs() {
+        let source = format!("blobs:\n  {}  b\n  {ID}  a\n", "z".repeat(40));
+        let blobs = parse_blobs(&source).expect("one valid entry");
+        assert_eq!(blobs.keys().collect::<Vec<_>>(), ["a"], "{blobs:?}");
+    }
+
+    #[test]
+    fn wrong_unlisted_and_missing_files_are_reported() {
+        let dir = std::env::temp_dir().join(format!("crypthix-vendored-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        fs::write(dir.join("a.json"), "{}\n").expect("write a.json");
+        fs::write(dir.join("b.json"), "{}\n").expect("write b.json");
+        fs::write(
+            dir.join("SOURCE"),
+            format!("blobs:\n  {ID}  a.json\n  {ID}  c.json\n"),
+        )
+        .expect("write SOURCE");
+        let mut problems = Vec::new();
+        let result = check_folder(&dir, &mut problems);
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+        assert_eq!(result, Ok(()), "git hash-object runs");
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(problems[0].contains("a.json is blob"), "{problems:?}");
+        assert!(
+            problems[1].contains("b.json has no blob ID"),
+            "{problems:?}"
+        );
+        assert!(
+            problems[2].contains("c.json, which is missing"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn the_committed_vectors_match() {
         assert_eq!(
             check(),

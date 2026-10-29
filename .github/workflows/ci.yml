@@ -290,8 +290,9 @@ jobs:
       - name: Mutate the changed lines
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+        # Library code only, like the path filter above; the weekly run covers the workspace.
         run: |
-          git diff "$BASE...HEAD" > "$RUNNER_TEMP/pr.diff"
+          git diff "$BASE...HEAD" -- crates/ > "$RUNNER_TEMP/pr.diff"
           cargo mutants --in-diff "$RUNNER_TEMP/pr.diff" --in-place --no-shuffle --test-tool nextest
       - name: Upload the mutation report
         if: always()
