@@ -927,7 +927,7 @@ Dates are estimates, not commitments.
 - [The Register: Claude Code reads off-limits secret files (Jan 2026)](https://www.theregister.com/2026/01/28/claude_code_ai_secrets_files/)
 - [Infisical: your AI coding agent is reading your env file](https://infisical.com/blog/your-ai-coding-agent-is-reading-your-env-file.md)
 - [Knostic: Claude and Cursor .env secret leakage](https://www.knostic.ai/blog/claude-cursor-env-file-secret-leakage)
-- [Malicious npm, PyPI and crates.io packages stealing keys (June 2026)](https://blog.rankiteo.com/npmpypsoc1780388789-npm-pypi-cratesio-cyber-attack-june-2026/)
+- [TrapDoor: malicious npm, PyPI and crates.io packages stealing keys (May 2026)](https://thehackernews.com/2026/05/trapdoor-supply-chain-attack-spreads.html)
 - [Semgrep: node-ipc supply-chain attack (2026)](https://semgrep.dev/blog/2026/not-your-ipc-but-node-ipc-npm-hit-again-with-supply-chain-attack-but-this-time-its-not-a-worm)
 - [BleepingComputer: infostealers bypass Chrome App-Bound Encryption](https://www.bleepingcomputer.com/news/security/infostealer-malware-bypasses-chromes-new-cookie-theft-defenses/)
 - [git-remote-gcrypt](https://github.com/spwhitton/git-remote-gcrypt)

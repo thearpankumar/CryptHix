@@ -16,10 +16,13 @@ inputs:
 runs:
   using: composite
   steps:
-    # rustup 1.28+ installs the toolchain named in rust-toolchain.toml, with its components.
-    - name: Install the pinned toolchain
+    # rust-toolchain.toml names `stable`. Runner images preinstall a stable that can lag (the
+    # macOS image had 1.98 when 1.99 was out), and `rustup toolchain install` keeps an installed
+    # channel as it is, so update it first; then install the file's components.
+    - name: Install the latest stable
       shell: bash
       run: |
+        rustup update --no-self-update stable
         rustup toolchain install
         rustc --version
         cargo --version

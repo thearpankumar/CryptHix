@@ -1,0 +1,13 @@
+# lychee settings for the weekly external link check (.github/workflows/scheduled.yml).
+# Relative links and anchors are checked on every PR by `cargo xtask check-docs`.
+
+# eprint.iacr.org answers 403 to lychee's own user agent but serves browsers and curl.
+user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+
+# Addresses on the reader's own machine, such as the dev container's code-server.
+exclude_loopback = true
+
+# Sites that are briefly down (a 502 from tahoe-lafs.org, for example) get a second chance.
+max_retries = 3
+retry_wait_time = 5
+timeout = 30

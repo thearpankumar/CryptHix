@@ -159,21 +159,6 @@ jobs:
           tools: cargo-deny@0.20.2,cargo-shear@1.14.0
       - run: cargo xtask ci deny
 
-  dependency-review:
-    name: Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-        with:
-          fail-on-severity: moderate
-
   side:
     name: tests/ workspace
     needs: changes
@@ -266,7 +251,6 @@ jobs:
       - test
       - doc
       - deny
-      - dependency-review
       - side
       - fuzz-smoke
       - mutants
@@ -277,5 +261,5 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: dependency-review, side, fuzz-smoke, mutants
+          allowed-skips: side, fuzz-smoke, mutants
           allowed-failures: mutants

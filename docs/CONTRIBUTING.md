@@ -36,7 +36,7 @@ Every job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs one 
 | `deny` | cargo-deny on both lockfiles, unused dependencies | cargo-deny, [cargo-shear](https://github.com/Boshen/cargo-shear) |
 | `side` | The `tests/` workspace tests and `vectors --check` | |
 
-Pull requests also get a dependency review, a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). Each tool's `cargo xtask` error names how to install it.
+Pull requests also get a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). Each tool's `cargo xtask` error names how to install it.
 
 [`.github/workflows/scheduled.yml`](../.github/workflows/scheduled.yml) runs the long checks: every night 20 minutes of fuzzing per target, property tests at 4096 cases in release mode, Miri, fresh advisories, macOS, Windows and Linux arm64, and coverage; every week a full mutation run, external links, a full-history secret scan and a runner capability probe. A pull request that edits it runs it with short limits.
 

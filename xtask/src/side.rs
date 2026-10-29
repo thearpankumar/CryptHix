@@ -178,6 +178,7 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
         }
         Err(error) => return Err(format!("cannot run rustup: {error}")),
     }
+    let host = toolchain_host(&toolchain)?;
     let corpus = tests_dir().join("fuzz").join("corpus");
     let corpus_arg = corpus.to_string_lossy().into_owned();
     run_generator(&["seeds", &corpus_arg])?;
@@ -188,10 +189,22 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
         // -O -a: optimised, but keeping debug assertions and overflow checks, so wrapping
         // length arithmetic panics (T-39). The regressions directory is a second, read-only
         // corpus; libFuzzer writes new inputs only to the first. The malloc limit catches a
-        // parser that allocates for a declared length before checking it (FS-11).
+        // parser that allocates for a declared length before checking it (FS-11). The target is
+        // the toolchain's host: cargo-fuzz otherwise builds for the triple it was itself built
+        // for, and its prebuilt Linux release is musl, where the address sanitizer cannot run.
         command
             .current_dir(tests_dir())
-            .args(["fuzz", "run", "--fuzz-dir", "fuzz", "-O", "-a", name])
+            .args([
+                "fuzz",
+                "run",
+                "--fuzz-dir",
+                "fuzz",
+                "-O",
+                "-a",
+                "--target",
+                &host,
+                name,
+            ])
             .arg(corpus.join(name))
             .arg(tests_dir().join("fuzz").join("regressions").join(name))
             .arg("--")
@@ -211,14 +224,30 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
         run_status(
             &mut command,
             &format!(
-                "fuzz target {name} failed; the input is in tests/fuzz/artifacts/{name}/. \
-                 Minimise it with `cd tests && cargo +{toolchain} fuzz tmin --fuzz-dir fuzz \
-                 {name} fuzz/artifacts/{name}/<file>` and save it under \
-                 tests/fuzz/regressions/{name}/ (see tests/README.md)"
+                "fuzz target {name} failed (see above). If it found a crash, the input is in \
+                 tests/fuzz/artifacts/{name}/: minimise it with `cd tests && cargo +{toolchain} \
+                 fuzz tmin --fuzz-dir fuzz --target {host} {name} fuzz/artifacts/{name}/<file>` \
+                 and save it under tests/fuzz/regressions/{name}/ (see tests/README.md)"
             ),
         )?;
     }
     Ok(())
+}
+
+/// The host triple of `toolchain`, from `rustc -vV`.
+fn toolchain_host(toolchain: &str) -> Result<String, String> {
+    let output = Command::new("rustup")
+        .args(["run", toolchain, "rustc", "-vV"])
+        .output()
+        .map_err(|error| format!("cannot run rustup: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("`rustup run {toolchain} rustc -vV` failed"));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .ok_or_else(|| format!("`rustc -vV` of {toolchain} names no host"))
 }
 
 /// Runs the vector generator with `args`.

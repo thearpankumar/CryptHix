@@ -24,7 +24,7 @@ Targets: `preamble`, `cbor_document`, `cbor_differential`, `cbor_structured`, `s
 
 Of the fuzz data folders, only `fuzz/dicts/` and `fuzz/regressions/` are tracked; `corpus/`, `artifacts/` and `coverage/` are local. When a target fails:
 
-1. Minimise the input: `cd tests && cargo +nightly fuzz tmin --fuzz-dir fuzz <target> fuzz/artifacts/<target>/<file>`.
+1. Minimise the input: `cd tests && cargo +nightly-2026-10-15 fuzz tmin --fuzz-dir fuzz --target x86_64-unknown-linux-gnu <target> fuzz/artifacts/<target>/<file>` (the failure message prints this with your host triple).
 2. Fix the bug.
 3. Commit the minimised input as `fuzz/regressions/<target>/<short-name>`. The replay test runs it on every `cargo xtask test-extra` from then on.
 
