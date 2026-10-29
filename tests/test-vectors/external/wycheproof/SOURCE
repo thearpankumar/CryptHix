@@ -1,0 +1,11 @@
+Project Wycheproof test vectors, copied unchanged.
+
+repository: https://github.com/C2SP/wycheproof
+commit:     d17cc89fa5c8f4f4d378b5385ebf75da5d0926c9 (2026-10-23)
+retrieved:  2026-10-29
+licence:    Apache-2.0 (LICENSE, copied from the repository root)
+files:
+  testvectors_v1/xchacha20_poly1305_test.json -> xchacha20_poly1305_test.json  (schema aead_test_schema_v1.json)
+  testvectors_v1/ed25519_test.json            -> ed25519_test.json            (schema eddsa_verify_schema_v1.json)
+  testvectors_v1/hkdf_sha256_test.json        -> hkdf_sha256_test.json        (schema hkdf_test_schema_v1.json)
+used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto

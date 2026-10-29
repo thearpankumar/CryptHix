@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | Format 0, draft v0.4 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
+| Status | Format 0, draft v0.5 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Format / suite | Format version `0x0000`, suite `0x0001` |
@@ -1327,15 +1327,17 @@ tests/test-vectors/
   README.md                          schema, expect values, how to regenerate
   schema/vector-file.schema.json     JSON Schema for every file below
   external/<source>/                 vendored, unchanged, each with SOURCE and LICENSE
-    wycheproof/                      XChaCha20-Poly1305, Ed25519, X25519, HKDF
+    wycheproof/                      XChaCha20-Poly1305, Ed25519, HKDF (X25519 with E13)
     rfc8439/  xchacha-draft/  rfc5869/  rfc9106/  rfc8032/  blake3/  ed25519-speccheck/
   crypthix/v0/tv-<NN>-<name>.json    CryptHix format vectors (sets below)
-  gen/                               dev-only generator crate
+  gen/                               dev-only generator crate: write, check, seeds
 ```
+
+`tests/` is its own Cargo workspace, outside the main one, so the generator's `test-rng` feature can never be unified into a release build (FS-01) and the fuzz targets' nightly toolchain stays out of normal builds. `cargo xtask vectors [--check]` runs the generator; `cargo xtask test-extra` runs the workspace's tests on stable.
 
 ### 20.2 File schema
 
-Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGroups` of `tests` with `tcId`, `comment`, `flags`). Instead of Wycheproof's `result` (valid, invalid, acceptable), each test has an `expect` naming the exact error, because format errors must be distinguishable.
+Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGroups` of `tests` with `tcId`, `comment`, `flags`). Instead of Wycheproof's `result` (valid, invalid, acceptable), each test has an `expect` naming the exact error, because format errors must be distinguishable. `schema/vector-file.schema.json` (JSON Schema draft 2020-12) is the contract. A set that draws no randomness has no `seed`, and only sets that compress have `zstd`. A set may add header strings of its own, such as the `limits` it runs with.
 
 ```json
 {
@@ -1364,9 +1366,9 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 - Every `flag` cites at least one M- or T- ID and the FS rule it tests.
 - Every `expect` is `Ok` or a name from [section 19](#19-errors). Only TV-05 expects `Commitment` or `AeadTag`; every other set expects `Decrypt` for a CX-AEAD failure.
 - Every rule that can fail has at least one negative vector.
-- The generator uses a seeded `ChaCha20Rng` behind a `test-rng` feature and draws only through `fill_bytes` on a separately labelled stream per test, never through `gen_range` or other distributions that may change between `rand` releases. A build check fails if any release binary enables the feature (FS-01).
+- The generator uses a seeded `ChaCha20Rng` behind a `test-rng` feature and draws only through `fill_bytes` on a separately labelled stream per test, never through `gen_range` or other distributions that may change between `rand` releases. A build check fails if any release binary enables the feature (FS-01). The stream and the check come with `crypthix-crypto`; TV-02, TV-03 and TV-17 draw no randomness, and the generator writes their bytes by hand rather than through the decoder they test.
 - zstd is pinned to one version, since its output may change between versions.
-- CI regenerates the vectors and diffs them against the committed files. Vectors are frozen per format; changing a committed vector needs a changelog row here.
+- CI regenerates the vectors and diffs them against the committed files (`cargo xtask vectors --check`). Vectors are frozen per format; changing a committed vector needs a changelog row here.
 - Argon2id vectors run at the 256 MiB floor and are marked slow; CI runs them once per change to the format crates.
 - Before the 1.0 audit, a second, independent decoder (for example a short Python reader) runs every set.
 
@@ -1539,6 +1541,7 @@ All three are tracked in [threat-model section 14](threat-model.md#14-open-quest
 
 | Version | Date | Change |
 | --- | --- | --- |
+| v0.5 | 2026-10-29 | From the fuzzing and test-harness item; no valid bytes change. `tests/` is its own workspace, holding the generator and the fuzz targets (20.1). The vector schema is draft 2020-12; `seed` and `zstd` are optional for sets with no randomness or compression, and sets may add header strings (20.2). The seeded generator stream arrives with `crypthix-crypto` (FS-94). External vectors: Wycheproof, BLAKE3 and ed25519-speccheck vendored unchanged; RFC vectors are transcribed with their runners |
 | v0.4 | 2026-10-29 | From implementing `crypthix-types` and four persona reviews of it. Configs are immutable and named `configs/<config_seq>.chx`, since a config replaced in place broke crash safety (FS-87); only share slots are replaced in place. Clarifications that change no valid bytes: preamble check order (FS-07); `Limit` versus `Truncated` for short input and how items are counted (FS-11); control characters are Unicode Cc including DEL (FS-10); the negative GREASE key is −v and GREASE entries are kept for exact re-encoding (FS-22); byte-order error precedence, with a tag, float or simple value as a key being `NonCanonical` (FS-93); non-canonical store names of a known shape are `NameMismatch` (FS-92); `sender_id` added to 4.1 |
 | v0.3 | 2026-10-29 | Second round of four persona reviews (malicious-server cryptanalyst, Rust implementer, plan-conformance auditor, privacy and recovery engineer). Root rotation now also replaces the master key, `vault_id`, epoch and device set; config pins a minimum device set; SIV shard-header nonces; slot AAD covers every clear key; no reuse for single-chunk files; passphrase-change and deletion limits stated, with a `shred` operation and deletion horizon; GC candidates in meta blobs and padded root; recovery sheet metadata and vault-bound checksum; byte-exact CDDL for trees and references, Padmé formula, zstd and FastCDC parameters; opaque `Decrypt` error; leakage list completed |
 | v0.2 | 2026-10-29 | Four persona reviews merged (applied cryptographer, parser engineer, storage engineer, auditor). CX-AEAD keys HKDF-Expand directly. Shares move to the Ristretto255 scalar field, and the P1 recovery sheet is stated to be the root. Root rotation added. DEKs move to a key table and manifests are sealed under DEK-derived keys, so rotation no longer rewrites manifests. Random pack keys; location tree and located references make meta packs findable and packs compactable. No clear epoch in shards. Root creation by no-replace link; two-phase GC; feature bits. Synthetic preambles for nested envelopes; signer-first root verification; device set signed by the master key. Stricter CBOR, limits and error table. Leakage and Phase 1 limits stated. Rules renumbered FS-01 to FS-94 |

@@ -1,0 +1,7 @@
+draft-irtf-cfrg-xchacha-03, XChaCha: eXtended-nonce ChaCha and AEAD_XChaCha20_Poly1305.
+
+source:     https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03
+sections:   2.2.1 (HChaCha20), A.3.1 (AEAD_XCHACHA20_POLY1305), A.3.2 (XChaCha20)
+status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
+            the crypthix-crypto item, so every transcribed value is checked the day it lands.
+used by:    TV-01 (format spec FS-05)

@@ -1,0 +1,7 @@
+RFC 9106, Argon2 Memory-Hard Function: the Argon2id vector.
+
+source:     https://www.rfc-editor.org/rfc/rfc9106
+sections:   5.3 (Argon2id)
+status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
+            the crypthix-crypto item, so every transcribed value is checked the day it lands.
+used by:    TV-01 (format spec FS-05)

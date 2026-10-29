@@ -1,0 +1,9 @@
+Official BLAKE3 test vectors (hash, keyed_hash and derive_key with extended output), copied unchanged.
+
+repository: https://github.com/BLAKE3-team/BLAKE3
+commit:     f55849f89cd85083c1c9daa2c5de20766f309c00 (2026-10-01)
+retrieved:  2026-10-29
+licence:    CC0-1.0 (LICENSE, copied from LICENSE_CC0; the project is also offered under Apache-2.0)
+files:
+  test_vectors/test_vectors.json -> test_vectors.json
+used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto

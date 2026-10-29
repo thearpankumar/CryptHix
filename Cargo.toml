@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*/*", "apps/*", "xtask"]
+# tests/ is its own workspace (fuzzing, vector generator): see tests/README.md.
+exclude = ["tests"]
 
 [workspace.package]
 version = "0.0.0"
@@ -15,6 +17,7 @@ publish = false
 crypthix-types = { path = "crates/foundation/types" }
 crypthix-crypto = { path = "crates/foundation/crypto" }
 crypthix-bus = { path = "crates/foundation/bus" }
+crypthix-testkit = { path = "crates/foundation/testkit" }
 crypthix-core = { path = "crates/engine/core" }
 crypthix-keys = { path = "crates/engine/keys" }
 crypthix-tokens = { path = "crates/engine/tokens" }

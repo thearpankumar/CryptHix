@@ -1,0 +1,20 @@
+[package]
+name = "crypthix-fuzz-harness"
+description = "Fuzz target bodies and the minicbor oracle, shared by the cargo-fuzz binaries and the stable replay tests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+arbitrary = "1.5.0"
+crypthix-types = { version = "0.0.0", path = "../../../crates/foundation/types" }
+minicbor = { version = "2.3.1", default-features = false, features = ["std", "half"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+crypthix-vector-gen = { path = "../../test-vectors/gen" }

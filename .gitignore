@@ -15,8 +15,10 @@
 # rustc internal compiler error dumps
 rustc-ice-*.txt
 
-# cargo-fuzz crash artifacts and coverage (corpus stays tracked)
+# cargo-fuzz working files; of its data folders only dicts/ and regressions/ are tracked
+# (see tests/README.md)
 /tests/fuzz/artifacts/
+/tests/fuzz/corpus/
 /tests/fuzz/coverage/
 
 # ---- Python ----

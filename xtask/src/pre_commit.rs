@@ -3,11 +3,11 @@
 //! Written in Rust rather than shell so the same checks run on Linux, macOS and Windows; the
 //! hook in `.githooks/pre-commit` only calls `cargo xtask pre-commit`.
 
-use std::env;
-use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process::{Command, ExitCode};
+
+use crate::process::{cargo, run_status};
 
 /// Largest file that may be committed, in bytes.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -110,6 +110,47 @@ fn checks() -> Result<(), String> {
             "warnings",
         ]),
         "clippy found problems (see above)",
+    )?;
+
+    // `tests/` is its own workspace, built on crypthix-types, so a change to either can break
+    // it. The cargo-fuzz crate is left out: libFuzzer needs a C++ compiler even to check, and
+    // its binaries only call the harness.
+    let side_changed = staged
+        .iter()
+        .any(|path| path.starts_with("tests/") || path.starts_with("crates/foundation/types/"));
+    if !side_changed {
+        return Ok(());
+    }
+    step("lint (cargo clippy, tests/ workspace)");
+    run_status(
+        Command::new(cargo()).args([
+            "clippy",
+            "--manifest-path",
+            "tests/Cargo.toml",
+            "--package",
+            "crypthix-fuzz-harness",
+            "--package",
+            "crypthix-vector-gen",
+            "--all-targets",
+            "--locked",
+            "--quiet",
+            "--",
+            "-D",
+            "warnings",
+        ]),
+        "clippy found problems in tests/ (see above)",
+    )?;
+    // The vector check, schema and fuzz replay: a parser change must still pass them.
+    step("tests (tests/ workspace)");
+    run_status(
+        Command::new(cargo()).args([
+            "test",
+            "--manifest-path",
+            "tests/Cargo.toml",
+            "--locked",
+            "--quiet",
+        ]),
+        "tests in tests/ failed (see above)",
     )
 }
 
@@ -137,6 +178,7 @@ fn hygiene(staged: &[String]) -> Result<(), String> {
         "whitespace errors or conflict markers (see above)",
     )?;
     let binary = binary_paths()?;
+    let as_published = unconverted_paths(staged)?;
     for path in staged {
         let spec = format!(":{path}");
         let size_text = git(&["cat-file", "-s", &spec])?;
@@ -149,7 +191,7 @@ fn hygiene(staged: &[String]) -> Result<(), String> {
                 "{path} is {size} bytes, over the {MAX_FILE_BYTES}-byte limit"
             ));
         }
-        if size > 0 && !binary.contains(path) {
+        if size > 0 && !binary.contains(path) && !as_published.contains(path) {
             let content = git(&["cat-file", "blob", &spec])?;
             if content.last() != Some(&b'\n') {
                 return Err(format!("{path} does not end with a newline"));
@@ -172,6 +214,22 @@ fn binary_paths() -> Result<Vec<String>, String> {
         }
     }
     Ok(binary)
+}
+
+/// Staged paths whose `text` attribute is unset in `.gitattributes`: vendored files kept
+/// exactly as published, which may lack a final newline.
+fn unconverted_paths(staged: &[String]) -> Result<Vec<String>, String> {
+    let mut args = vec!["check-attr", "--cached", "-z", "text", "--"];
+    args.extend(staged.iter().map(String::as_str));
+    // With -z, each record is "path NUL attribute NUL value NUL".
+    let output = git(&args)?;
+    let fields: Vec<&[u8]> = output.split(|byte| *byte == 0).collect();
+    let (records, _) = fields.as_chunks::<3>();
+    Ok(records
+        .iter()
+        .filter(|[_, _, value]| *value == b"unset")
+        .map(|[path, _, _]| String::from_utf8_lossy(path).into_owned())
+        .collect())
 }
 
 /// Scans the staged changes for secrets with gitleaks.
@@ -201,11 +259,6 @@ fn step(name: &str) {
     println!("pre-commit: {name}");
 }
 
-/// The cargo that runs this task, so the hook uses the project's toolchain.
-fn cargo() -> OsString {
-    env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
-}
-
 /// Runs `git` with `args` and returns its standard output.
 fn git(args: &[&str]) -> Result<Vec<u8>, String> {
     let output = Command::new("git")
@@ -220,19 +273,6 @@ fn git(args: &[&str]) -> Result<Vec<u8>, String> {
             args.join(" "),
             String::from_utf8_lossy(&output.stderr).trim()
         ))
-    }
-}
-
-/// Runs a command with inherited output and fails with `failure` if it does not succeed.
-fn run_status(command: &mut Command, failure: &str) -> Result<(), String> {
-    let program = command.get_program().to_string_lossy().into_owned();
-    let status = command
-        .status()
-        .map_err(|error| format!("cannot run {program}: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(failure.to_owned())
     }
 }
 

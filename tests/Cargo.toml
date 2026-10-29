@@ -1,0 +1,41 @@
+# Test tooling that must stay out of the main workspace build: cargo-fuzz targets (nightly,
+# a C++ libFuzzer) and the test-vector generator (later the `test-rng` feature of
+# crypthix-crypto, which must never be unified into a release build, FS-01).
+#
+# `cargo test --manifest-path tests/Cargo.toml` builds the default members only, so it runs on
+# stable without a C++ compiler. See tests/README.md.
+
+[workspace]
+resolver = "3"
+members = ["fuzz", "fuzz/harness", "test-vectors/gen"]
+default-members = ["fuzz/harness", "test-vectors/gen"]
+
+# Keep in sync with [workspace.package] in the root Cargo.toml.
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/thearpankumar/CryptHix"
+publish = false
+
+# Keep in sync with [workspace.lints] in the root Cargo.toml; a separate workspace cannot
+# inherit them.
+[workspace.lints.rust]
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "warn"
+wildcard_imports = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+module_name_repetitions = "allow"

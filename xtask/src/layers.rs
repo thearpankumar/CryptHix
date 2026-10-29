@@ -83,7 +83,10 @@ impl fmt::Display for Violation {
 }
 
 /// Order of foundation crates: each may depend only on those before it.
-const FOUNDATION_ORDER: [&str; 3] = ["types", "crypto", "bus"];
+const FOUNDATION_ORDER: [&str; 4] = ["types", "crypto", "bus", "testkit"];
+
+/// Foundation crates that may only be dev-dependencies: test doubles must never reach a build.
+const DEV_ONLY: [&str; 1] = ["testkit"];
 
 /// Engine crates that may use other engine crates directly (rule 5).
 const ENGINE_UPPER: [&str; 2] = ["snapshot", "metabolism"];
@@ -96,6 +99,11 @@ pub(crate) fn check_edge(from: &Placement, to: &Placement) -> Result<(), Violati
         reason,
     };
 
+    if to.group == Group::Foundation && DEV_ONLY.contains(&to.folder.as_str()) {
+        return Err(violation(
+            "test support crates may only be dev-dependencies",
+        ));
+    }
     if from.group == Group::Tooling {
         return Ok(());
     }
@@ -120,7 +128,9 @@ pub(crate) fn check_edge(from: &Placement, to: &Placement) -> Result<(), Violati
             let rank = |folder: &str| FOUNDATION_ORDER.iter().position(|known| *known == folder);
             match (rank(&from.folder), rank(&to.folder)) {
                 (Some(from_rank), Some(to_rank)) if to_rank < from_rank => Ok(()),
-                _ => Err(violation("foundation order is types -> crypto -> bus")),
+                _ => Err(violation(
+                    "foundation order is types -> crypto -> bus -> testkit",
+                )),
             }
         }
         Group::Engine => {
@@ -199,6 +209,30 @@ mod tests {
         let crypto = placed("crypthix-crypto", "crates/foundation/crypto");
         assert!(check_edge(&crypto, &types).is_ok());
         assert!(check_edge(&types, &crypto).is_err());
+    }
+
+    #[test]
+    fn testkit_is_last_in_the_foundation_order() {
+        let types = placed("crypthix-types", "crates/foundation/types");
+        let testkit = placed("crypthix-testkit", "crates/foundation/testkit");
+        assert!(
+            check_edge(&testkit, &types).is_ok(),
+            "testkit builds on crypthix-types"
+        );
+    }
+
+    #[test]
+    fn testkit_is_never_a_normal_dependency() {
+        let testkit = placed("crypthix-testkit", "crates/foundation/testkit");
+        let store = placed("crypthix-store", "crates/engine/store");
+        let daemon = placed("crypthixd", "apps/crypthixd");
+        let xtask = placed("xtask", "xtask");
+        assert!(check_edge(&store, &testkit).is_err(), "not from a library");
+        assert!(check_edge(&daemon, &testkit).is_err(), "not from a binary");
+        assert!(
+            check_edge(&xtask, &testkit).is_err(),
+            "not even from tooling"
+        );
     }
 
     #[test]

@@ -14,24 +14,24 @@ Each phase ends with a [threat-model review](threat-model.md#15-did-we-do-a-good
 - [x] **Threat model document** — Attackers, assets, trust boundaries and what each phase defends, based on [project-vision.md section 8](project-vision.md#8-threat-model). See [threat-model.md](threat-model.md). `docs/`
 - [x] **On-disk format spec v0** — Manifest, shard, key-file and log-entry formats with version fields and a test-vector plan. Must include full AAD binding (M-8), key commitment (M-9), authenticated KDF parameters (M-10), per-device signing keys (M-14), retirable random epoch KEKs (M-34), no-downgrade suite pinning (M-33), domain separation (M-37), encrypted manifests and shard headers (M-39), a signed vault root (M-40), versioned shares and a field for the anti-rollback counter. See [format-spec.md](format-spec.md). `docs/`
 - [x] **Shared types and errors** — IDs (object, shard, epoch, device), error types matching the format spec's error table, config loading, the preamble and our own strict deterministic CBOR codec ([format spec 5](format-spec.md#5-encoding)), store names, cross-crate traits (`Backend`, `EventSink`, `ResponseActions`; `KeyProvider` lives in `crypthix-crypto`, rule 11), TV-02, TV-03 and TV-17 vectors. `foundation/crypthix-types`
-- [ ] **Fuzzing and test harness** — `cargo-fuzz` targets (including FUSE requests, API messages and config, M-29; first for the `crypthix-types` parsers: preamble, CBOR document, store names and TOML config, with `minicbor` as a differential oracle for the CBOR target), the vector JSON Schema and seeded generator of [format spec 20](format-spec.md#20-test-vectors), property-test setup, known-answer, Wycheproof and CryptHix format vectors laid out as in [format spec 20](format-spec.md#20-test-vectors), crash-injection tests (M-44), benchmark harness. `tests/`
+- [x] **Fuzzing and test harness** — `cargo-fuzz` targets for the `crypthix-types` parsers (preamble, CBOR document, a CBOR differential against an independent `minicbor` oracle, structure-aware CBOR, store names, ID and counter text, and TOML config, M-29), replayed on stable by `cargo xtask test-extra`; the vector JSON Schema and the generator with `cargo xtask vectors --check` ([format spec 20](format-spec.md#20-test-vectors)); property-test conventions; Wycheproof, BLAKE3 and ed25519-speccheck vectors vendored as in [format spec 20](format-spec.md#20-test-vectors); the `crypthix-testkit` crash-point harness (M-44); criterion benchmarks. Moved to later items: FUSE-request and API-message targets (P2), TV-20 crash tests (local backend), the seeded `test-rng` stream and the known-answer runners (crypto wrappers). `tests/`, `foundation/crypthix-testkit`
 
 ## Phase 1: Engine core
 
-- [ ] **Crypto wrappers (E4)** — Thin wrappers over audited crates for suite `0x0001`: XChaCha20-Poly1305 inside the committing CX-AEAD, HKDF-SHA-256, BLAKE3, Argon2id, Ed25519 with strict verification ([format spec 4, 7](format-spec.md#7-domain-separation-and-committing-aead)); zeroizing key types; no other crate calls crypto libraries directly, and `cargo-deny` also bans `curve25519-dalek`, `subtle` and `getrandom` outside this crate. cargo-deny `wrappers` allow only direct parents, so these entries list the audited crates that pull them in (for example `ed25519-dalek`), and `getrandom` stays allowed for dev-dependencies such as `proptest`. `foundation/crypthix-crypto`
+- [ ] **Crypto wrappers (E4)** — Thin wrappers over audited crates for suite `0x0001`: XChaCha20-Poly1305 inside the committing CX-AEAD, HKDF-SHA-256, BLAKE3, Argon2id, Ed25519 with strict verification ([format spec 4, 7](format-spec.md#7-domain-separation-and-committing-aead)); zeroizing key types; known-answer runners over the vendored Wycheproof, BLAKE3 and ed25519-speccheck vectors and the RFC vectors transcribed with them (TV-01); the seeded `ChaCha20Rng` `test-rng` stream for the vector generator, with a build check that no release binary enables it (FS-01, FS-94); no other crate calls crypto libraries directly, and `cargo-deny` also bans `curve25519-dalek`, `subtle` and `getrandom` outside this crate. cargo-deny `wrappers` allow only direct parents, so these entries list the audited crates that pull them in (for example `ed25519-dalek`), and `getrandom` stays allowed for dev-dependencies such as `proptest`. `foundation/crypthix-crypto`
 - [ ] **Protected key memory (O1)** — Key buffers in `memfd_secret`, `mlock`, excluded from core dumps, with a fallback on older kernels; covers derived keys and plaintext buffers too, not only the root key (T-31). `foundation/crypthix-crypto`
 - [ ] **Chunking, compression and padding (E1, E2, E3)** — FastCDC chunking, zstd with auto-skip for already-compressed data, padding to size buckets. `engine/crypthix-core`
 - [ ] **Encrypt pipeline and signed manifests (E4, E5)** — Data and meta blobs, size-class packs, shards, device-signed manifests with Merkle trees, the path index and the signed vault root, as in the [format spec](format-spec.md) (M-8, M-39, M-40); read-after-write check (M-45); full write and read path. `engine/crypthix-core`
 - [ ] **Key hierarchy (E6)** — Root key → random keyring → random epoch KEKs (M-34) → per-object DEKs; vault signing key and the first device certificate (M-14); passphrase share slot and printed recovery share (M-10, M-18, M-35); wrapped key storage. `engine/crypthix-keys`
-- [ ] **Local storage backend** — Shard, key-file and vault-root I/O on `/var/lib/crypthix/<vault-id>/store` behind the `Backend` trait; commit order with compare-and-swap on the root (M-44). The local backend may use std and `rustix` file APIs behind `cfg(target_os = "linux")`, without `unsafe`, as an exception to rule 4. `engine/crypthix-store`
+- [ ] **Local storage backend** — Shard, key-file and vault-root I/O on `/var/lib/crypthix/<vault-id>/store` behind the `Backend` trait; commit order with compare-and-swap on the root (M-44), crash-tested at every commit step with `crypthix-testkit` (TV-20), plus torn-write and lost-unsynced-data faults below the `Backend` trait for the file I/O itself. The local backend may use std and `rustix` file APIs behind `cfg(target_os = "linux")`, without `unsafe`, as an exception to rule 4. `engine/crypthix-store`
 - [ ] **Automatic KEK rotation (E7)** — Scheduled re-wrap of DEKs and pack keys and re-seal of the encrypted trees under a new epoch KEK, in the background (daily by default, [format spec FS-90](format-spec.md#17-commit-rotation-and-garbage-collection)). `engine/crypthix-keys`
 - [ ] **Embedded event queue (M1)** — Persistent in-process queue for rotation, scrub and repair jobs and alerts, behind the `Bus` trait; jobs carry sequence numbers and expiry (M-12). `foundation/crypthix-bus`
 - [ ] **CLI v0** — `crypthix init / put / get / verify / rotate / status`; `init` prints a recovery share (M-35). `apps/crypthix-cli`
 
 ## Phase 2: Workspace MVP → 0.1 alpha
 
-- [ ] **Daemon and local API** — `crypthixd` process that owns keys and wires all crates; JSON-over-Unix-socket API for CLI and extension. Runs as its own system user that owns the store and config, checks socket peers with `SO_PEERCRED` and pidfd, fails closed, and reports Full or Degraded hardening mode (M-13, M-15). A root helper mounts the vault and brokers caller identity (M-20, M-21); keys live in a separate key-holder process (M-29). `apps/crypthixd`, `access/crypthix-api`
-- [ ] **Transparent encrypted folder (A1)** — FUSE mount backed by the engine; open, read, write, rename, delete, mmap-safe; `crypthix mount`. Secret paths use direct I/O with no shared page cache; the caller's UID is checked on every request; lookups and listings follow the same policy (M-1, M-15, M-23). `access/crypthix-fs`
+- [ ] **Daemon and local API** — `crypthixd` process that owns keys and wires all crates; JSON-over-Unix-socket API for CLI and extension. Runs as its own system user that owns the store and config, checks socket peers with `SO_PEERCRED` and pidfd, fails closed, and reports Full or Degraded hardening mode (M-13, M-15). A root helper mounts the vault and brokers caller identity (M-20, M-21); keys live in a separate key-holder process (M-29). A `cargo-fuzz` target for API messages (M-29). `apps/crypthixd`, `access/crypthix-api`
+- [ ] **Transparent encrypted folder (A1)** — FUSE mount backed by the engine; open, read, write, rename, delete, mmap-safe; `crypthix mount`. Secret paths use direct I/O with no shared page cache; the caller's UID is checked on every request; lookups and listings follow the same policy (M-1, M-15, M-23). A `cargo-fuzz` target for FUSE requests (M-29). `access/crypthix-fs`
 - [ ] **Program identity resolution** — Caller PID → exe path, binary hash (cached), parent chain, uid, cgroup. pidfd and start-time checks against PID reuse; identity by exe device, inode and hash, never by process name; launch-environment check (M-2, M-3, M-17). `access/crypthix-policy`
 - [ ] **Per-program policy engine (A2)** — `policy.toml` rules by program and path, most-specific-first matching, default ask for unknown programs and deny for secret paths. Policy changes only through the API (M-7); files that steer allowed programs are protected (M-6). `access/crypthix-policy`
 - [ ] **First-use prompts and deny log (A3, A4)** — Allow once / always / deny prompts via the API; every denial logged with its process tree. `access/crypthix-policy`, `access/crypthix-api`
@@ -130,7 +130,8 @@ crypthix/
 │   ├── foundation/            # shared by everything, no CryptHix deps of its own
 │   │   ├── types/             # crypthix-types: IDs, errors, config, formats, cross-crate traits
 │   │   ├── crypto/            # crypthix-crypto: the ONLY crate that touches crypto libraries
-│   │   └── bus/               # crypthix-bus: Bus trait, embedded queue, RabbitMQ + webhooks (features)
+│   │   ├── bus/               # crypthix-bus: Bus trait, embedded queue, RabbitMQ + webhooks (features)
+│   │   └── testkit/           # crypthix-testkit: test doubles and crash points, dev-dependency only
 │   │
 │   ├── engine/                # the "Genome": storing, keys, integrity, durability
 │   │   ├── core/              # crypthix-core: chunk, compress, pad, encrypt, manifest
@@ -165,7 +166,7 @@ crypthix/
 │   └── office/                # Word add-in (later)
 │
 ├── docs/                      # project-vision.md, backlog.md, threat-model.md, format-spec.md, examples/
-├── tests/                     # integration/, fuzz/, bench/, demo/, test-vectors/
+├── tests/                     # own workspace: integration/, fuzz/, bench/, demo/, test-vectors/
 └── deploy/                    # packaging, systemd unit, release signing, confidential-VM template
 ```
 
@@ -177,7 +178,7 @@ Groups form layers. A crate may depend only on crates in its own group or in a l
 
 | Layer | Group | Crates | May depend on |
 | --- | --- | --- | --- |
-| 0 | `crates/foundation` | types → crypto → bus | external crates only (in that order inside the group) |
+| 0 | `crates/foundation` | types → crypto → bus → testkit | external crates only (in that order inside the group); testkit only as a dev-dependency |
 | 1 | `crates/engine` | core, keys, tokens, store, log → snapshot, metabolism | foundation |
 | 2 | `crates/security` | hardening → guard | foundation, engine |
 | 2 | `crates/sync` | sync, git | foundation, engine |

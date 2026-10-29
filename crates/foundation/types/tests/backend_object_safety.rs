@@ -1,82 +1,12 @@
 //! `Backend` is usable as a trait object, and its outcomes describe compare-and-swap.
 
-use std::collections::BTreeMap;
 use std::ops::ControlFlow;
-use std::sync::Mutex;
 
-use crypthix_types::backend::{Backend, BackendError, ByteRange, Capabilities, DeleteOutcome};
+use crypthix_testkit::MemoryBackend;
+use crypthix_types::backend::{Backend, ByteRange, Capabilities, DeleteOutcome};
 use crypthix_types::backend::{ListEntry, ObjectMeta, PutMode, PutOutcome, ReadMode};
 use crypthix_types::id::{ConfigSeq, RootSeq};
 use crypthix_types::store_key::{StoreKey, StorePrefix};
-
-/// An in-memory backend, for this test only.
-#[derive(Default)]
-struct MemoryBackend {
-    files: Mutex<BTreeMap<StoreKey, Vec<u8>>>,
-}
-
-impl Backend for MemoryBackend {
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::ATOMIC_CREATE
-    }
-
-    fn get(
-        &self,
-        key: &StoreKey,
-        range: ByteRange,
-        _read: ReadMode,
-    ) -> Result<Vec<u8>, BackendError> {
-        let files = self.files.lock().expect("not poisoned");
-        let file = files.get(key).ok_or(BackendError::NotFound)?;
-        let start = usize::try_from(range.start()).map_err(|_| BackendError::Unsupported)?;
-        let len = usize::try_from(range.len()).map_err(|_| BackendError::Unsupported)?;
-        let bytes: Vec<u8> = file.iter().skip(start).take(len).copied().collect();
-        range.check_response(&bytes)?;
-        Ok(bytes)
-    }
-
-    fn stat(&self, key: &StoreKey) -> Result<Option<ObjectMeta>, BackendError> {
-        let files = self.files.lock().expect("not poisoned");
-        Ok(files
-            .get(key)
-            .map(|file| ObjectMeta::new(file.len() as u64)))
-    }
-
-    fn put(&self, key: &StoreKey, bytes: &[u8], mode: PutMode) -> Result<PutOutcome, BackendError> {
-        let mut files = self.files.lock().expect("not poisoned");
-        if mode == PutMode::IfAbsent && files.contains_key(key) {
-            return Ok(PutOutcome::AlreadyExists);
-        }
-        files.insert(*key, bytes.to_vec());
-        Ok(PutOutcome::Created)
-    }
-
-    fn list(
-        &self,
-        prefix: StorePrefix,
-        visit: &mut dyn FnMut(ListEntry) -> ControlFlow<()>,
-    ) -> Result<(), BackendError> {
-        let files = self.files.lock().expect("not poisoned");
-        for (key, file) in files.iter() {
-            let entry = ListEntry::File {
-                key: *key,
-                meta: ObjectMeta::new(file.len() as u64),
-            };
-            if prefix.contains(key) && visit(entry).is_break() {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn delete(&self, key: &StoreKey) -> Result<DeleteOutcome, BackendError> {
-        let mut files = self.files.lock().expect("not poisoned");
-        Ok(match files.remove(key) {
-            Some(_) => DeleteOutcome::Deleted,
-            None => DeleteOutcome::NotFound,
-        })
-    }
-}
 
 #[test]
 fn root_put_is_a_compare_and_swap() {

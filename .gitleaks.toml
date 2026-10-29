@@ -1,0 +1,12 @@
+# gitleaks settings for `cargo xtask pre-commit`: the default rules, plus one narrow allowlist.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Published test vectors vendored unchanged: their keys are public test data (see each SOURCE file)"
+# Exact files only, so anything else added under external/ is still scanned.
+paths = [
+    '''^tests/test-vectors/external/blake3/test_vectors\.json$''',
+    '''^tests/test-vectors/external/wycheproof/xchacha20_poly1305_test\.json$''',
+]

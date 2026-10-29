@@ -158,6 +158,7 @@ One `crypthixd` process serves each human user and wires together library crates
 | foundation | `crypthix-types` | IDs, errors, config, versioned formats, cross-crate traits | all |
 | foundation | `crypthix-crypto` | The only crate using crypto libraries; zeroizing key types; `memfd_secret` key memory | all engine crates |
 | foundation | `crypthix-bus` | Job and event queue; RabbitMQ adapter and webhooks as features | keys, metabolism, guard, sync |
+| foundation | `crypthix-testkit` | Test doubles: in-memory and fault-injecting backends, crash points; dev-dependency only | tests of every crate |
 | engine | `crypthix-core` | Chunk, compress, pad, encrypt, hash, sign (and reverse) | keys, store |
 | engine | `crypthix-keys` | Root unlock, KEK/DEK hierarchy, rotation, retirement, Shamir, TPM, KMS | core, bus, log |
 | engine | `crypthix-tokens` | Biscuit capability tokens for devices, members, git and sync | policy, keys |
@@ -718,7 +719,7 @@ One Cargo workspace, crates grouped by domain so the root stays small:
 ```text
 crypthix/
 ├── crates/
-│   ├── foundation/   types, crypto, bus
+│   ├── foundation/   types, crypto, bus, testkit
 │   ├── engine/       core, keys, tokens, store, log, snapshot, metabolism
 │   ├── security/     guard, hardening
 │   ├── sync/         sync, git

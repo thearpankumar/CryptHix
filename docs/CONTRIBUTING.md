@@ -18,7 +18,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 cargo xtask check-layers
 cargo deny check
+cargo xtask test-extra
 ```
+
+If you change a parser, also fuzz it for a few minutes on nightly, for example `cargo xtask fuzz cbor_differential --time 300` (see [Testing](style-guide.md#testing)).
 
 ## Reporting security issues
 

@@ -207,6 +207,102 @@ mod tests {
         bytes
     }
 
+    /// A byte string of `len` bytes with a 1- or 2-byte length head.
+    fn byte_string(len: usize) -> Vec<u8> {
+        let mut bytes = match u8::try_from(len) {
+            Ok(short) if short < 24 => vec![0x40 | short],
+            Ok(short) => vec![0x58, short],
+            Err(_) => {
+                let [high, low] = u16::try_from(len)
+                    .expect("test lengths fit u16")
+                    .to_be_bytes();
+                vec![0x59, high, low]
+            }
+        };
+        bytes.resize(bytes.len() + len, 0);
+        bytes
+    }
+
+    /// Every limit holds at exactly its value and fails one above it (FS-11). Each limit is
+    /// tightened on its own, so no other limit decides the result.
+    #[test]
+    fn every_limit_holds_at_n_and_fails_at_n_plus_one() {
+        let base = Limits::FORMAT_0;
+        let cases: [(&str, Limits, Vec<u8>, Vec<u8>); 7] = [
+            // A 64-byte document is a byte string with a 2-byte head and 62 bytes.
+            (
+                "document length",
+                base.with_max_document_len(64),
+                byte_string(62),
+                byte_string(63),
+            ),
+            (
+                "byte string length",
+                base.with_max_string_len(8),
+                byte_string(8),
+                byte_string(9),
+            ),
+            (
+                "text string length",
+                base.with_max_string_len(8),
+                [&[0x68][..], b"abcdefgh"].concat(),
+                [&[0x69][..], b"abcdefghi"].concat(),
+            ),
+            (
+                "array length",
+                base.with_max_container_len(4),
+                vec![0x84, 0, 0, 0, 0],
+                vec![0x85, 0, 0, 0, 0, 0],
+            ),
+            (
+                "map length",
+                base.with_max_container_len(4),
+                vec![0xa4, 0, 0, 1, 0, 2, 0, 3, 0],
+                vec![0xa5, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0],
+            ),
+            // [[0, 0, 0], [0, 0, 0], 0] is 10 items; [[0, 0, 0], [0, 0, 0], [0]] is 11.
+            (
+                "total items",
+                base.with_max_total_items(10),
+                vec![0x83, 0x83, 0, 0, 0, 0x83, 0, 0, 0, 0],
+                vec![0x83, 0x83, 0, 0, 0, 0x83, 0, 0, 0, 0x81, 0],
+            ),
+            (
+                "depth",
+                base.with_max_depth(3),
+                nested_arrays(3),
+                nested_arrays(4),
+            ),
+        ];
+        for (limit, limits, at, over) in cases {
+            assert_eq!(document(&at, &limits), Ok(()), "{limit} at the limit");
+            assert_eq!(
+                document(&over, &limits),
+                Err(FormatError::Limit),
+                "{limit} one over"
+            );
+        }
+    }
+
+    /// The format 0 document limit, at full size: 16 MiB is accepted, one byte more is not.
+    #[test]
+    fn format_0_document_length_boundary() {
+        let len = Limits::FORMAT_0.max_document_len();
+        // A byte string with a 5-byte head filling the whole document.
+        let mut at = vec![0x5a];
+        at.extend_from_slice(&u32::try_from(len - 5).expect("fits").to_be_bytes());
+        at.resize(len, 0);
+        assert_eq!(check(&at), Ok(()), "a document of exactly 16 MiB");
+        let mut over = vec![0x5a];
+        over.extend_from_slice(&u32::try_from(len - 4).expect("fits").to_be_bytes());
+        over.resize(len + 1, 0);
+        assert_eq!(
+            check(&over),
+            Err(FormatError::Limit),
+            "one byte over 16 MiB"
+        );
+    }
+
     #[test]
     fn accepts_canonical_items() {
         for bytes in [

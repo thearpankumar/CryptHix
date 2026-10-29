@@ -1,0 +1,15 @@
+[package]
+name = "crypthix-testkit"
+description = "Test support: in-memory backend, fault injection and crash-point driver. Dev-dependency only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+crypthix-types.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+Ed25519 edge cases from "Taming the many EdDSAs" (Chalkias, Garillot, Nikolaenko, 2020), copied unchanged.
+They pin the strict verification rules of format spec section 4 (small-order keys, non-canonical
+encodings, mixed-order points).
+
+repository: https://github.com/novifinancial/ed25519-speccheck (archived)
+commit:     65519336fda78a3d016e947df6d82848aca0c9da (2021-02-26)
+retrieved:  2026-10-29
+licence:    Apache-2.0 (LICENSE, copied from the repository root)
+files:
+  cases.json -> cases.json  (no final newline upstream; .gitattributes keeps it byte-exact)
+used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto

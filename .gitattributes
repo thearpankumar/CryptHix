@@ -1,3 +1,11 @@
 # Keep line endings LF in the repository on every platform, so whitespace checks,
 # rustfmt and test vectors see the same bytes on Linux, macOS and Windows.
 * text=auto eol=lf
+
+# Vendored upstream files stay exactly as published (see each SOURCE file): git does not convert
+# their line endings, and the pre-commit hook skips its final-newline check for them. They stay
+# diffable and scanned for secrets.
+tests/test-vectors/external/*/*.json -text
+tests/test-vectors/external/blake3/LICENSE -text
+tests/test-vectors/external/ed25519-speccheck/LICENSE -text
+tests/test-vectors/external/wycheproof/LICENSE -text

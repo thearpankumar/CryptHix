@@ -1,0 +1,19 @@
+[package]
+name = "crypthix-vector-gen"
+description = "Writes and checks the CryptHix format test vectors (format spec section 20)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+crypthix-types = { path = "../../../crates/foundation/types" }
+jsonschema = { version = "0.60.2", default-features = false }
+serde_json = "1.0.154"

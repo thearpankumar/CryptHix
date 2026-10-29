@@ -1,0 +1,7 @@
+RFC 8032, Edwards-Curve Digital Signature Algorithm (EdDSA): Ed25519 vectors.
+
+source:     https://www.rfc-editor.org/rfc/rfc8032
+sections:   7.1 (TEST 1, 2, 3, 1024, SHA(abc))
+status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
+            the crypthix-crypto item, so every transcribed value is checked the day it lands.
+used by:    TV-01 (format spec FS-05)

@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/thearpankumar/CryptHix/tests/test-vectors/schema/vector-file.schema.json",
+  "title": "CryptHix test-vector file",
+  "description": "Every file under tests/test-vectors/crypthix/ (format spec section 20.2, FS-94). Modelled on Wycheproof: testGroups of tests with tcId, comment and flags, but each test names the exact expected error instead of valid/invalid.",
+  "type": "object",
+  "required": [
+    "set",
+    "structure",
+    "formatVersion",
+    "suiteId",
+    "generator",
+    "notes",
+    "testGroups",
+    "numberOfTests"
+  ],
+  "properties": {
+    "set": {
+      "type": "string",
+      "pattern": "^TV-[0-9]{2}$"
+    },
+    "structure": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "formatVersion": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "suiteId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "generator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "description": "32-byte seed of the generator's labelled streams. Required once a set uses randomness (FS-94); sets with no randomness leave it out.",
+      "$ref": "#/$defs/hex",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "zstd": {
+      "description": "The pinned zstd version, for sets that compress.",
+      "type": "string",
+      "minLength": 1
+    },
+    "notes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/flag"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/note"
+      }
+    },
+    "testGroups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/testGroup"
+      }
+    },
+    "numberOfTests": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": {
+    "description": "Set-specific header fields, such as the limits a set runs with.",
+    "type": "string"
+  },
+  "$defs": {
+    "hex": {
+      "description": "Lowercase hex, two digits per byte.",
+      "type": "string",
+      "pattern": "^([0-9a-f]{2})*$"
+    },
+    "flag": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$"
+    },
+    "ruleId": {
+      "type": "string",
+      "pattern": "^(FS|M|T)-[0-9]{2,3}$"
+    },
+    "note": {
+      "type": "object",
+      "required": [
+        "cites",
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cites": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ruleId"
+          },
+          "description": "At least one FS rule and one M- or T- ID (FS-94); the runner checks that each exists.",
+          "allOf": [
+            {
+              "contains": {
+                "type": "string",
+                "pattern": "^FS-"
+              }
+            },
+            {
+              "contains": {
+                "type": "string",
+                "pattern": "^(M|T)-"
+              }
+            }
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "testGroup": {
+      "type": "object",
+      "required": [
+        "type",
+        "tests"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*$"
+        },
+        "tests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/test"
+          }
+        }
+      },
+      "additionalProperties": {
+        "description": "Group-level shared inputs, such as a key for every test in the group."
+      }
+    },
+    "test": {
+      "type": "object",
+      "required": [
+        "tcId",
+        "comment",
+        "flags",
+        "inputs",
+        "expect"
+      ],
+      "properties": {
+        "tcId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "comment": {
+          "type": "string"
+        },
+        "flags": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/flag"
+          }
+        },
+        "inputs": {
+          "$ref": "#/$defs/inputs"
+        },
+        "expect": {
+          "$ref": "#/$defs/expect"
+        }
+      },
+      "additionalProperties": {
+        "description": "Expected outputs beside expect, such as plaintextHash."
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Named inputs. Byte inputs are lowercase hex and listed here by name; other inputs are text, integers or integer lists.",
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/hex"
+        },
+        "cbor": {
+          "$ref": "#/$defs/hex"
+        }
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "expect": {
+      "description": "Ok, or a name from format spec section 19. The list must equal FormatError::ALL plus Ok (checked by the generator's schema test).",
+      "enum": [
+        "Ok",
+        "Magic",
+        "UnknownType",
+        "NameMismatch",
+        "Flags",
+        "TrailingBytes",
+        "Truncated",
+        "Limit",
+        "NonCanonical",
+        "Schema",
+        "UnknownCritical",
+        "UnsupportedFormat",
+        "UnsupportedSuite",
+        "UnsupportedStruct",
+        "Downgrade",
+        "Feature",
+        "ZeroValue",
+        "VaultId",
+        "MissingKey",
+        "Decrypt",
+        "Binding",
+        "KdfBelowFloor",
+        "KdfAboveCeiling",
+        "Signature",
+        "WeakKey",
+        "CertChain",
+        "Revoked",
+        "Expired",
+        "Merkle",
+        "ChunkList",
+        "Padding",
+        "Decompress",
+        "Layout",
+        "ShardHash",
+        "Path",
+        "Rollback",
+        "Fork",
+        "StateLost",
+        "Retired",
+        "ShareInvalid",
+        "ShareMix",
+        "RootCommit",
+        "Checksum",
+        "Audience",
+        "Replay"
+      ]
+    }
+  }
+}
