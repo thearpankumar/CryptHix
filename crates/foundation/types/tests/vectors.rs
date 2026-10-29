@@ -96,6 +96,9 @@ fn run_set(name: &str, set: &str, run: impl Fn(&str, &Value) -> Result<(), Forma
                 "{set} tcId {}: unknown expect {expect}",
                 test["tcId"]
             );
+            if cfg!(miri) && too_big_for_miri(&test["inputs"]) {
+                continue;
+            }
             let got = outcome(run(group_type, &test["inputs"]));
             assert_eq!(
                 got, expect,
@@ -105,6 +108,19 @@ fn run_set(name: &str, set: &str, run: impl Fn(&str, &Value) -> Result<(), Forma
         }
     }
     assert_eq!(file["numberOfTests"], count);
+}
+
+/// Generated documents with more than this many items take hours under Miri; the native test
+/// runs check them.
+const MIRI_MAX_ITEMS: u64 = 4096;
+
+/// Whether a test's generated document is too large to run under Miri.
+fn too_big_for_miri(inputs: &Value) -> bool {
+    let flat = inputs["flat"].as_u64().unwrap_or(0);
+    let inner: u64 = inputs["inner"]
+        .as_array()
+        .map_or(0, |lengths| lengths.iter().filter_map(Value::as_u64).sum());
+    flat.max(inner) > MIRI_MAX_ITEMS
 }
 
 /// An array of `count` zeros.
@@ -217,6 +233,9 @@ fn tv_03_generated_documents_match_the_encoder() {
         serde_json::json!({ "flat": 1 << 20 }),
         serde_json::json!({ "inner": [0, 24, 300] }),
     ] {
+        if cfg!(miri) && too_big_for_miri(&inputs) {
+            continue;
+        }
         assert_eq!(generated_document(&inputs), raw_bytes(&inputs), "{inputs}");
     }
 }

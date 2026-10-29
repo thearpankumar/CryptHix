@@ -5,6 +5,7 @@
 
 use std::env;
 use std::ffi::OsString;
+use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
@@ -185,6 +186,10 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
     for target in targets {
         let name = target.name;
         println!("fuzz: {name} for {seconds} s");
+        // libFuzzer refuses a corpus directory that does not exist, and structure-aware targets
+        // get no seeds from the vectors.
+        fs::create_dir_all(corpus.join(name))
+            .map_err(|error| format!("cannot create the {name} corpus: {error}"))?;
         let mut command = toolchain_cargo(&toolchain);
         // -O -a: optimised, but keeping debug assertions and overflow checks, so wrapping
         // length arithmetic panics (T-39). The regressions directory is a second, read-only
@@ -297,8 +302,6 @@ fn usage(text: &str) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use std::fs;
 
     #[test]
     fn fuzz_targets_match_the_fuzz_binaries() {

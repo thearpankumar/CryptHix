@@ -286,6 +286,7 @@ mod tests {
 
     /// The format 0 document limit, at full size: 16 MiB is accepted, one byte more is not.
     #[test]
+    #[cfg_attr(miri, ignore = "16 MiB of input takes hours under Miri")]
     fn format_0_document_length_boundary() {
         let len = Limits::FORMAT_0.max_document_len();
         // A byte string with a 5-byte head filling the whole document.

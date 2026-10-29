@@ -121,9 +121,12 @@ jobs:
         run: |
           rustup toolchain install nightly-2026-10-15 --profile minimal --component miri,rust-src
           rustup run nightly-2026-10-15 cargo miri setup
-      # Miri runs each test case thousands of times slower; a few property cases suffice.
+      # Miri runs each test case thousands of times slower; a few property cases suffice. The
+      # tests read the vector files and proptest looks up its working directory, so Miri gets
+      # the host file system (isolation off). Tests over full-size limits skip themselves.
       - name: cargo miri test
         env:
+          MIRIFLAGS: -Zmiri-disable-isolation
           PROPTEST_CASES: "8"
         run: rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
 
@@ -247,12 +250,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Relative links and anchors are checked on every PR by `cargo xtask check-docs`.
-      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
-        with:
-          args: --no-progress --scheme https --scheme http "./**/*.md"
-          fail: true
-          token: ${{ github.token }}
+      - name: Install lychee
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o lychee.tar.gz \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
+          echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
+          tar -xzf lychee.tar.gz --strip-components=1 -C bin lychee-x86_64-unknown-linux-gnu/lychee
+      # Every tracked Markdown file, with lychee.toml. Relative links and anchors are checked on
+      # every PR by `cargo xtask check-docs`; PRs also check the external links of the files
+      # they change.
+      - name: Check external links
+        run: git ls-files -z '*.md' | xargs -0 "$RUNNER_TEMP/bin/lychee" --no-progress --
 
   secrets-history:
     name: Secrets (full history)

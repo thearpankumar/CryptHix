@@ -2,8 +2,9 @@
 //!
 //! Each job in `.github/workflows/ci.yml` runs one of these, so a local run checks exactly
 //! what CI checks. With no job named, every job runs in turn. `--base` is the commit the
-//! changes start from (default `origin/master`); the `lint` job checks the commit messages,
-//! file hygiene and secrets of the commits after it.
+//! changes start from (default `origin/master`); the `pr` job checks the commit messages, file
+//! hygiene and secrets of the commits after it. CI runs `pr` on pull requests only: a push to
+//! master brings no commits a pull request has not already checked.
 
 use std::env;
 use std::process::Command;
@@ -14,9 +15,10 @@ use crate::{commits, docs_check, pre_commit, side, vendored};
 /// One CI job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Job {
-    /// Formatting, layer rules, docs, vendored vectors, typos, workflow lint, commit messages,
-    /// hygiene and secrets.
+    /// Formatting, layer rules, docs, vendored vectors, typos and workflow lint.
     Lint,
+    /// Commit messages, file hygiene and secrets of the commits after `--base`.
+    Pr,
     /// Clippy on both workspaces.
     Clippy,
     /// The main workspace tests and doctests.
@@ -29,8 +31,9 @@ enum Job {
     Side,
 }
 
-const JOBS: [Job; 6] = [
+const JOBS: [Job; 7] = [
     Job::Lint,
+    Job::Pr,
     Job::Clippy,
     Job::Test,
     Job::Doc,
@@ -42,6 +45,7 @@ impl Job {
     const fn name(self) -> &'static str {
         match self {
             Job::Lint => "lint",
+            Job::Pr => "pr",
             Job::Clippy => "clippy",
             Job::Test => "test",
             Job::Doc => "doc",
@@ -83,7 +87,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     for job in jobs {
         println!("ci: {}", job.name());
         match job {
-            Job::Lint => lint(&base)?,
+            Job::Lint => lint()?,
+            Job::Pr => pr(&base)?,
             Job::Clippy => clippy()?,
             Job::Test => test()?,
             Job::Doc => doc()?,
@@ -107,7 +112,7 @@ fn step(name: &str) {
     println!("ci: - {name}");
 }
 
-fn lint(base: &str) -> Result<(), String> {
+fn lint() -> Result<(), String> {
     step("formatting");
     run_status(
         Command::new(cargo()).args(["fmt", "--all", "--check"]),
@@ -157,7 +162,10 @@ fn lint(base: &str) -> Result<(), String> {
     run_status(
         Command::new("zizmor").args(["--offline", "--no-progress", ".github"]),
         "zizmor found problems in .github (see above)",
-    )?;
+    )
+}
+
+fn pr(base: &str) -> Result<(), String> {
     step(&format!("commits after {base}"));
     commits::check(base)?;
     pre_commit::hygiene_and_secrets(&pre_commit::Changes::Since(base.to_owned()))

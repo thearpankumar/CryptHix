@@ -934,4 +934,4 @@ Dates are estimates, not commitments.
 - [dotenvx with 1Password](https://dotenvx.com/docs/guides/1password)
 - [MongoDB right-to-erasure via key deletion](https://www.mongodb.com/docs/manual/core/csfle/tutorials/right-to-erasure/)
 - [MLS, RFC 9420](https://www.rfc-editor.org/rfc/rfc9420)
-- [Cryptomator](https://cryptomator.org) · [Tahoe-LAFS](https://tahoe-lafs.org) · [OpenZFS](https://openzfs.org) · [Storj](https://www.storj.io) · [MinIO](https://min.io)
+- [Cryptomator](https://cryptomator.org) · [Tahoe-LAFS](https://github.com/tahoe-lafs/tahoe-lafs) · [OpenZFS](https://openzfs.org) · [Storj](https://www.storj.io) · [MinIO](https://min.io)

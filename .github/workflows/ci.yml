@@ -1,6 +1,11 @@
 # Pull-request and master CI. Every job starts at once; `ci-ok` is the only required check.
 # Each job runs one `cargo xtask ci <job>`, so `cargo xtask ci` locally checks the same things
 # (see docs/CONTRIBUTING.md).
+#
+# Jobs about what a pull request changes (its commits, the links in the docs it touches, the
+# fuzz smoke run and mutants of its lines) run on pull requests only: a push to master carries
+# commits a pull request already checked. Master runs the build jobs, which also save the
+# caches pull requests restore.
 name: CI
 
 on:
@@ -26,6 +31,7 @@ env:
 jobs:
   changes:
     name: Changed paths
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -35,6 +41,7 @@ jobs:
       side: ${{ steps.filter.outputs.side }}
       fuzz: ${{ steps.filter.outputs.fuzz }}
       mutants: ${{ steps.filter.outputs.mutants }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,6 +65,9 @@ jobs:
               - ".github/workflows/ci.yml"
             mutants:
               - "crates/**/*.rs"
+            docs:
+              - "**/*.md"
+              - "lychee.toml"
 
   lint:
     name: Lint
@@ -69,12 +79,37 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: ./.github/actions/setup
         with:
           cache-key: lint
           tools: typos@1.51.1,zizmor@1.31.1
-      - name: Install gitleaks and actionlint
+      - name: Install actionlint
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz -C bin actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: cargo xtask ci lint
+
+  pr:
+    name: PR commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: lint
+      - name: Install gitleaks
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           cd "$RUNNER_TEMP"
@@ -82,17 +117,41 @@ jobs:
             https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
           tar -xzf gitleaks.tar.gz -C bin gitleaks
-          curl -sSfL -o actionlint.tar.gz \
-            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
-          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
-          tar -xzf actionlint.tar.gz -C bin actionlint
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: cargo xtask ci lint
+      - name: cargo xtask ci pr
         env:
-          # The PR's base, or the commit before a push. All zeros on a branch's first push,
-          # which xtask reads as origin/master.
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: cargo xtask ci lint --base "$BASE"
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: cargo xtask ci pr --base "$BASE"
+
+  links:
+    name: Links in changed docs
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install lychee
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -sSfL -o lychee.tar.gz \
+            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
+          echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
+          tar -xzf lychee.tar.gz --strip-components=1 -C bin lychee-x86_64-unknown-linux-gnu/lychee
+      # External links in the Markdown files this PR adds or changes; the weekly scheduled run
+      # checks every file. File names go through xargs, never through a shell.
+      - name: Check external links
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff -z --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.md' \
+            | xargs -0 --no-run-if-empty "$RUNNER_TEMP/bin/lychee" --no-progress --
 
   clippy:
     name: Clippy
@@ -162,7 +221,8 @@ jobs:
   side:
     name: tests/ workspace
     needs: changes
-    if: github.event_name == 'push' || needs.changes.outputs.side == 'true'
+    # `changes` is skipped on push, so this job must not require it to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.side == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -247,6 +307,8 @@ jobs:
     needs:
       - changes
       - lint
+      - pr
+      - links
       - clippy
       - test
       - doc
@@ -261,5 +323,5 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: side, fuzz-smoke, mutants
+          allowed-skips: changes, pr, links, side, fuzz-smoke, mutants
           allowed-failures: mutants

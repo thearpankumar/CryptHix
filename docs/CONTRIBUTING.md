@@ -29,14 +29,15 @@ Every job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs one 
 
 | Job | Checks | Tools it needs locally |
 | --- | --- | --- |
-| `lint` | Formatting of both workspaces, layer rules, `check-docs`, `check-vendored`, typos, workflow lint, commit messages, and file hygiene and secrets on the commits after `--base` (default `origin/master`) | [typos](https://github.com/crate-ci/typos), [actionlint](https://github.com/rhysd/actionlint), [zizmor](https://docs.zizmor.sh), gitleaks |
+| `lint` | Formatting of both workspaces, layer rules, `check-docs`, `check-vendored`, typos and workflow lint | [typos](https://github.com/crate-ci/typos), [actionlint](https://github.com/rhysd/actionlint), [zizmor](https://docs.zizmor.sh) |
+| `pr` (pull requests only) | Commit messages, file hygiene and secrets of the commits after `--base` (default `origin/master`) | gitleaks |
 | `clippy` | Clippy on both workspaces, warnings as errors | |
 | `test` | Main workspace tests (nextest) and doctests | [cargo-nextest](https://nexte.st) |
 | `doc` | Rustdoc, warnings as errors | |
 | `deny` | cargo-deny on both lockfiles, unused dependencies | cargo-deny, [cargo-shear](https://github.com/Boshen/cargo-shear) |
 | `side` | The `tests/` workspace tests and `vectors --check` | |
 
-Pull requests also get a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). Each tool's `cargo xtask` error names how to install it.
+Pull requests also get an external link check ([lychee](https://lychee.cli.rs), `lychee.toml`) of the Markdown files they change, a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). These jobs and `pr` look at what a pull request changes, so they do not run on pushes to master, whose commits a pull request already checked. Each tool's `cargo xtask` error names how to install it.
 
 [`.github/workflows/scheduled.yml`](../.github/workflows/scheduled.yml) runs the long checks: every night 20 minutes of fuzzing per target, property tests at 4096 cases in release mode, Miri, fresh advisories, macOS, Windows and Linux arm64, and coverage; every week a full mutation run, external links, a full-history secret scan and a runner capability probe. A pull request that edits it runs it with short limits.
 
