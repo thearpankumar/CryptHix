@@ -5,3 +5,6 @@ sections:   5.3 (Argon2id)
 status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
             the crypthix-crypto item, so every transcribed value is checked the day it lands.
 used by:    TV-01 (format spec FS-05)
+blobs:      git blob IDs (git hash-object) of the files here; checked
+            by `cargo xtask check-vendored`
+  e422bf9b50039881ea60b4cb74a2df8f9b3bfdd3  LICENSE

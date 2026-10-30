@@ -6,14 +6,22 @@
 //! - `cargo xtask vectors [--check]` rewrites the test vectors, or checks they are current.
 //! - `cargo xtask test-extra` runs the `tests/` workspace tests: vectors, schema, fuzz replay.
 //! - `cargo xtask fuzz <target | all> [--time <seconds>]` fuzzes on nightly.
+//! - `cargo xtask ci [<job> ...] [--base <rev>]` runs the CI jobs (see `ci.rs`).
+//! - `cargo xtask check-docs` checks links, anchors and cross-reference IDs in the docs.
+//! - `cargo xtask check-vendored` checks the vendored vectors against their SOURCE blob IDs.
+//! - `cargo xtask check-commits <base>` checks the messages of the commits after `base`.
 
 // Printing a report is this tool's job; the print lints target library code.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
+mod ci;
+mod commits;
+mod docs_check;
 mod layers;
 mod pre_commit;
 mod process;
 mod side;
+mod vendored;
 
 use std::collections::HashMap;
 use std::env;
@@ -30,31 +38,48 @@ fn main() -> ExitCode {
         None => ("", &[][..]),
     };
     match command {
-        "check-layers" => check_layers(),
+        "check-layers" => report(check_layers()),
         "pre-commit" => pre_commit::run(),
         "install-hooks" => pre_commit::install(),
         "vectors" => side::vectors(rest),
         "test-extra" => side::test_extra(rest),
         "fuzz" => side::fuzz(rest),
-        _ => {
-            eprintln!(
-                "usage: cargo xtask <check-layers | pre-commit | install-hooks | vectors \
-                 | test-extra | fuzz>"
-            );
+        "ci" => report(ci::run(rest)),
+        "check-docs" if rest.is_empty() => report(docs_check::check()),
+        "check-vendored" if rest.is_empty() => report(vendored::check()),
+        "check-commits" => match rest {
+            [base] => report(commits::check(base)),
+            _ => usage(),
+        },
+        _ => usage(),
+    }
+}
+
+fn usage() -> ExitCode {
+    eprintln!(
+        "usage: cargo xtask <check-layers | pre-commit | install-hooks | vectors | test-extra \
+         | fuzz | ci | check-docs | check-vendored | check-commits>"
+    );
+    ExitCode::FAILURE
+}
+
+/// Prints a failure and turns the result into an exit code.
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("xtask: {message}");
             ExitCode::FAILURE
         }
     }
 }
 
 /// Checks every dependency between workspace packages against the layer rules.
-fn check_layers() -> ExitCode {
-    let metadata = match MetadataCommand::new().no_deps().exec() {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            eprintln!("cargo metadata failed: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
+fn check_layers() -> Result<(), String> {
+    let metadata = MetadataCommand::new()
+        .no_deps()
+        .exec()
+        .map_err(|error| format!("cargo metadata failed: {error}"))?;
 
     let mut problems: Vec<String> = Vec::new();
     let mut placements: HashMap<&str, Placement> = HashMap::new();
@@ -96,11 +121,11 @@ fn check_layers() -> ExitCode {
 
     if problems.is_empty() {
         println!("layer rules: {} packages, no violations", placements.len());
-        ExitCode::SUCCESS
+        Ok(())
     } else {
         for problem in &problems {
             eprintln!("layer rule violation: {problem}");
         }
-        ExitCode::FAILURE
+        Err(format!("{} layer rule violations", problems.len()))
     }
 }

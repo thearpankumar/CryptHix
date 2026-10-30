@@ -1,0 +1,13 @@
+# typos (crate-ci/typos) settings for `cargo xtask ci lint`.
+
+[files]
+# Vendored and generated vector data: hex and upstream text, checked byte for byte elsewhere.
+extend-exclude = ["tests/test-vectors/external/", "tests/test-vectors/crypthix/"]
+
+[default]
+extend-ignore-re = [
+    # Hex literals in the vector generator.
+    '"[0-9a-f]{2,}"',
+    # STRIDE initials in bold: **I**nformation disclosure.
+    '\*\*[A-Z]\*\*[a-z]+',
+]

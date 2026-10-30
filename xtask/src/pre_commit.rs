@@ -3,6 +3,7 @@
 //! Written in Rust rather than shell so the same checks run on Linux, macOS and Windows; the
 //! hook in `.githooks/pre-commit` only calls `cargo xtask pre-commit`.
 
+use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process::{Command, ExitCode};
@@ -52,17 +53,51 @@ pub(crate) fn install() -> ExitCode {
     }
 }
 
+/// Which changes the hygiene and secret checks look at.
+#[derive(Clone, Debug)]
+pub(crate) enum Changes {
+    /// The index, for the pre-commit hook.
+    Staged,
+    /// The commits after `base` up to `HEAD`, for CI. The working tree must match `HEAD`.
+    Since(String),
+}
+
+impl Changes {
+    /// The `git diff` arguments that select these changes.
+    fn diff_range(&self) -> Vec<String> {
+        match self {
+            Changes::Staged => vec!["--cached".to_owned()],
+            Changes::Since(base) => vec![format!("{base}...HEAD")],
+        }
+    }
+
+    /// The git object name of `path` in these changes.
+    fn blob(&self, path: &str) -> String {
+        match self {
+            Changes::Staged => format!(":{path}"),
+            Changes::Since(_) => format!("HEAD:{path}"),
+        }
+    }
+}
+
+/// File hygiene and secret scanning on `changes`: the checks that need no build.
+pub(crate) fn hygiene_and_secrets(changes: &Changes) -> Result<(), String> {
+    let paths = changed_paths(changes)?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    step("file hygiene");
+    hygiene(changes, &paths)?;
+    step("secrets (gitleaks)");
+    secrets(changes)
+}
+
 fn checks() -> Result<(), String> {
-    let staged = staged_paths()?;
+    let staged = changed_paths(&Changes::Staged)?;
     if staged.is_empty() {
         return Ok(());
     }
-
-    step("file hygiene");
-    hygiene(&staged)?;
-
-    step("secrets (gitleaks)");
-    secrets()?;
+    hygiene_and_secrets(&Changes::Staged)?;
 
     let rust_files: Vec<&str> = staged
         .iter()
@@ -154,15 +189,12 @@ fn checks() -> Result<(), String> {
     )
 }
 
-/// Paths of staged files that were added, copied, modified or renamed.
-fn staged_paths() -> Result<Vec<String>, String> {
-    let output = git(&[
-        "diff",
-        "--cached",
-        "--name-only",
-        "--diff-filter=ACMR",
-        "-z",
-    ])?;
+/// Paths of files in `changes` that were added, copied, modified or renamed.
+fn changed_paths(changes: &Changes) -> Result<Vec<String>, String> {
+    let mut args = vec!["diff".to_owned()];
+    args.extend(changes.diff_range());
+    args.extend(["--name-only", "--diff-filter=ACMR", "-z"].map(str::to_owned));
+    let output = git(&args)?;
     split_nul(&output)
         .map(|path| {
             String::from_utf8(path.to_vec()).map_err(|_| "a staged path is not UTF-8".to_owned())
@@ -171,16 +203,19 @@ fn staged_paths() -> Result<Vec<String>, String> {
 }
 
 /// Whitespace errors, conflict markers, file size and a final newline.
-fn hygiene(staged: &[String]) -> Result<(), String> {
+fn hygiene(changes: &Changes, paths: &[String]) -> Result<(), String> {
     // Trailing whitespace, blank lines at the end of a file and leftover conflict markers.
     run_status(
-        Command::new("git").args(["diff", "--cached", "--check"]),
+        Command::new("git")
+            .arg("diff")
+            .args(changes.diff_range())
+            .arg("--check"),
         "whitespace errors or conflict markers (see above)",
     )?;
-    let binary = binary_paths()?;
-    let as_published = unconverted_paths(staged)?;
-    for path in staged {
-        let spec = format!(":{path}");
+    let binary = binary_paths(changes)?;
+    let as_published = unconverted_paths(changes, paths)?;
+    for path in paths {
+        let spec = changes.blob(path);
         let size_text = git(&["cat-file", "-s", &spec])?;
         let size: u64 = String::from_utf8_lossy(&size_text)
             .trim()
@@ -201,10 +236,13 @@ fn hygiene(staged: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Staged paths that git treats as binary.
-fn binary_paths() -> Result<Vec<String>, String> {
+/// Paths in `changes` that git treats as binary.
+fn binary_paths(changes: &Changes) -> Result<Vec<String>, String> {
     // With -z, each record is "added<TAB>deleted<TAB>path"; binary files show "-" counts.
-    let output = git(&["diff", "--cached", "--numstat", "-z", "--diff-filter=ACMR"])?;
+    let mut args = vec!["diff".to_owned()];
+    args.extend(changes.diff_range());
+    args.extend(["--numstat", "-z", "--diff-filter=ACMR"].map(str::to_owned));
+    let output = git(&args)?;
     let mut binary = Vec::new();
     for record in split_nul(&output) {
         let record = String::from_utf8_lossy(record);
@@ -216,11 +254,15 @@ fn binary_paths() -> Result<Vec<String>, String> {
     Ok(binary)
 }
 
-/// Staged paths whose `text` attribute is unset in `.gitattributes`: vendored files kept
-/// exactly as published, which may lack a final newline.
-fn unconverted_paths(staged: &[String]) -> Result<Vec<String>, String> {
-    let mut args = vec!["check-attr", "--cached", "-z", "text", "--"];
-    args.extend(staged.iter().map(String::as_str));
+/// Paths whose `text` attribute is unset in `.gitattributes`: vendored files kept exactly as
+/// published, which may lack a final newline.
+fn unconverted_paths(changes: &Changes, paths: &[String]) -> Result<Vec<String>, String> {
+    let mut args = vec!["check-attr".to_owned()];
+    if matches!(changes, Changes::Staged) {
+        args.push("--cached".to_owned());
+    }
+    args.extend(["-z", "text", "--"].map(str::to_owned));
+    args.extend(paths.iter().cloned());
     // With -z, each record is "path NUL attribute NUL value NUL".
     let output = git(&args)?;
     let fields: Vec<&[u8]> = output.split(|byte| *byte == 0).collect();
@@ -232,8 +274,8 @@ fn unconverted_paths(staged: &[String]) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// Scans the staged changes for secrets with gitleaks.
-fn secrets() -> Result<(), String> {
+/// Scans `changes` for secrets with gitleaks.
+fn secrets(changes: &Changes) -> Result<(), String> {
     match Command::new("gitleaks").arg("version").output() {
         Ok(_) => {}
         Err(error) if error.kind() == ErrorKind::NotFound => {
@@ -241,16 +283,14 @@ fn secrets() -> Result<(), String> {
         }
         Err(error) => return Err(format!("cannot run gitleaks: {error}")),
     }
+    let mut command = Command::new("gitleaks");
+    command.arg("git");
+    match changes {
+        Changes::Staged => command.args(["--pre-commit", "--staged"]),
+        Changes::Since(base) => command.arg(format!("--log-opts={base}..HEAD")),
+    };
     run_status(
-        Command::new("gitleaks").args([
-            "git",
-            "--pre-commit",
-            "--staged",
-            "--redact",
-            "--no-banner",
-            "--log-level",
-            "warn",
-        ]),
+        command.args(["--redact", "--no-banner", "--log-level", "warn"]),
         "gitleaks found a possible secret (see above)",
     )
 }
@@ -260,7 +300,7 @@ fn step(name: &str) {
 }
 
 /// Runs `git` with `args` and returns its standard output.
-fn git(args: &[&str]) -> Result<Vec<u8>, String> {
+pub(crate) fn git<S: AsRef<OsStr>>(args: &[S]) -> Result<Vec<u8>, String> {
     let output = Command::new("git")
         .args(args)
         .output()
@@ -270,7 +310,10 @@ fn git(args: &[&str]) -> Result<Vec<u8>, String> {
     } else {
         Err(format!(
             "git {} failed: {}",
-            args.join(" "),
+            args.iter()
+                .map(|arg| arg.as_ref().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" "),
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }

@@ -7,3 +7,7 @@ licence:    CC0-1.0 (LICENSE, copied from LICENSE_CC0; the project is also offer
 files:
   test_vectors/test_vectors.json -> test_vectors.json
 used by:    TV-01 (format spec FS-05); runners come with crypthix-crypto
+blobs:      git blob IDs (git hash-object), equal to upstream's at the commit above; checked
+            by `cargo xtask check-vendored`
+  0e259d42c996742e9e3cba14c677129b2c1b6311  LICENSE
+  f6da91792c6cdf5c6a0f6dad01803045bb204a68  test_vectors.json

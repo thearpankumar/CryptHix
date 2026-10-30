@@ -30,19 +30,21 @@ The API design rules are **binding for library crates** (everything under `crate
 | Test vectors | `cargo xtask vectors --check` | The committed vectors match the generator byte for byte ([format spec FS-94](format-spec.md#20-test-vectors)) |
 | `tests/` workspace | `cargo xtask test-extra` | Vector schema, external vectors, generator check and fuzz replay on stable, then cargo-deny with `tests/deny.toml` |
 | Fuzzing | `cargo xtask fuzz <target \| all>` | cargo-fuzz on nightly, seeded from the vectors ([Testing](#testing)) |
-| CI | `.github/workflows/ci.yml` | Runs all of the above with warnings as errors |
+| Docs check | `cargo xtask check-docs` | Relative links and anchors in every tracked Markdown file; `FS-`, `TV-`, `M-` and `T-` IDs cited in the docs and vectors are defined |
+| Vendored vectors | `cargo xtask check-vendored` | Each file under `tests/test-vectors/external/` has the git blob ID its SOURCE records |
+| Commit messages | `cargo xtask check-commits <base>` | One-line `<type>: <summary>` messages ([CONTRIBUTING](CONTRIBUTING.md#commit-messages)) |
+| Spelling | `_typos.toml` | [typos](https://github.com/crate-ci/typos) over code and docs; vector data excluded |
+| Workflow lint | `.github/zizmor.yml` | actionlint and zizmor over `.github/` |
+| Toolchain | `rust-toolchain.toml` | Latest stable; fuzzing and Miri use the nightly pinned in `xtask/src/side.rs` |
+| CI | `cargo xtask ci`, `.github/workflows/` | Runs all of the above with warnings as errors ([CONTRIBUTING](CONTRIBUTING.md#continuous-integration)) |
 
 Enable the pre-commit hook once per clone with `cargo xtask install-hooks`. On every commit it checks the staged changes for file hygiene (trailing whitespace, conflict markers, a final newline, files over 1 MiB), secrets ([gitleaks](https://github.com/gitleaks/gitleaks), installed with `go install github.com/zricethezav/gitleaks/v8@v8.30.1`), formatting and Clippy. The checks are written in Rust (`xtask/src/pre_commit.rs`) and the hook is one line of POSIX `sh`, so they run the same on Linux, macOS and Windows (Git for Windows' bundled shell).
 
-Run everything locally before pushing:
+Run everything CI runs, locally, before pushing:
 
 ```bash
 cargo fmt --all
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo xtask check-layers
-cargo deny check
-cargo xtask test-extra
+cargo xtask ci
 ```
 
 Every crate inherits the shared lints with `[lints] workspace = true`. Create new crates with `cargo new` inside a group folder (for example `cargo new --lib --name crypthix-foo crates/engine/foo`); Cargo then inherits the workspace package fields and lints automatically.
@@ -160,7 +162,7 @@ Where each kind of test lives, and the conventions for each.
 
 - **Unit tests** sit in a `mod tests` at the bottom of the leaf module they test. **Integration tests** of one crate sit in its `tests/`; cross-crate tests go in `tests/integration/`.
 - **Test vectors** live in `tests/test-vectors/` ([format spec section 20](format-spec.md#20-test-vectors)). Never edit a vector file by hand: change the generator in `tests/test-vectors/gen`, run `cargo xtask vectors`, and add a format-spec changelog row. `cargo xtask vectors --check` fails when a committed file differs from the generator, and the schema test checks every file against `schema/vector-file.schema.json`. Vendored vectors under `external/` stay unchanged; each folder has a `SOURCE` (repository, commit, files) and a `LICENSE`.
-- **Fuzz targets** for every parser (backlog rule 10, M-29), including the text forms of IDs and counters. A target's body is a plain function in `tests/fuzz/harness` that panics when a property fails; the cargo-fuzz binary in `tests/fuzz/fuzz_targets` only calls it. `cargo xtask test-extra` runs every body on stable against each vector input, one-bit mutations of the short ones and every saved regression. `cargo xtask fuzz <target>` fuzzes on nightly (`cargo install cargo-fuzz --locked`, `rustup toolchain install nightly`), starting from the vector inputs, with debug assertions on and a per-input allocation limit. Test every limit at exactly its value and one above: random fuzzing rarely lands on an exact length. When fuzzing finds a crash, minimise it with `cargo +nightly fuzz tmin`, fix the bug, and commit the input under `tests/fuzz/regressions/<target>/`. CBOR targets compare our validator with an independent minicbor oracle; compare acceptance only, since error precedence is pinned by the vectors.
+- **Fuzz targets** for every parser (backlog rule 10, M-29), including the text forms of IDs and counters. A target's body is a plain function in `tests/fuzz/harness` that panics when a property fails; the cargo-fuzz binary in `tests/fuzz/fuzz_targets` only calls it. `cargo xtask test-extra` runs every body on stable against each vector input, one-bit mutations of the short ones and every saved regression. `cargo xtask fuzz <target>` fuzzes on nightly (`cargo install cargo-fuzz --locked`, `rustup toolchain install nightly-2026-10-15`, the nightly pinned in `xtask/src/side.rs`), starting from the vector inputs, with debug assertions on and a per-input allocation limit. Test every limit at exactly its value and one above: random fuzzing rarely lands on an exact length. When fuzzing finds a crash, minimise it with the `cargo fuzz tmin` command the failure message prints, fix the bug, and commit the input under `tests/fuzz/regressions/<target>/`. CBOR targets compare our validator with an independent minicbor oracle; compare acceptance only, since error precedence is pinned by the vectors.
 - **Property tests** use proptest with its default 256 cases. Set `PROPTEST_CASES=4096` for a deep run. Commit any `proptest-regressions/` file proptest writes, so a found case is rerun forever.
 - **Crash tests** for anything that writes to a store use `crypthix-testkit` (a dev-dependency only; `check-layers` rejects it anywhere else): `MemoryBackend`, `FaultBackend` for lost replies, injected errors and corrupt uncached reads (assert `applied()` so a misplaced fault cannot pass), and `for_each_crash_point`, which crashes a deterministic workload after every operation and checks what a restart finds (M-44). Faults are whole operations, matching the `Backend` contract; torn writes and reordering below it come with the local backend.
 - **Benchmarks** use criterion in each crate's `benches/` with `harness = false`. Run them with `cargo bench -p <crate> --bench <name>`; `cargo clippy --all-targets` keeps them compiling.

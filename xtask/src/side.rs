@@ -5,11 +5,12 @@
 
 use std::env;
 use std::ffi::OsString;
+use std::fs;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
-use crate::process::{cargo, run_status};
+use crate::process::{cargo, repo_root, require_tool, run_status};
 
 /// A fuzz target in `tests/fuzz/fuzz_targets`, with the dictionary it uses.
 #[derive(Clone, Copy, Debug)]
@@ -53,17 +54,15 @@ const FUZZ_TARGETS: [FuzzTarget; 7] = [
 /// Seconds per target when `--time` is not given.
 const DEFAULT_FUZZ_SECONDS: u64 = 60;
 
+/// The nightly that fuzzing uses, pinned so a new nightly cannot break CI unannounced.
+/// `CRYPTHIX_FUZZ_TOOLCHAIN` overrides it.
+const FUZZ_TOOLCHAIN: &str = "nightly-2026-10-15";
+
 /// How to install the fuzzing tool the `fuzz` command expects.
 const CARGO_FUZZ_INSTALL: &str = "cargo install cargo-fuzz --locked";
 
 /// How to install the licence and advisory checker `test-extra` runs on `tests/`.
 const CARGO_DENY_INSTALL: &str = "cargo install cargo-deny --locked";
-
-/// The repository root: xtask lives in `<root>/xtask`.
-fn repo_root() -> PathBuf {
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.parent().unwrap_or(manifest_dir).to_path_buf()
-}
 
 fn tests_dir() -> PathBuf {
     repo_root().join("tests")
@@ -79,6 +78,11 @@ pub(crate) fn vectors(args: &[String]) -> ExitCode {
     report(run_generator(&[mode]))
 }
 
+/// Checks the committed vector files match the generator.
+pub(crate) fn vectors_check() -> Result<(), String> {
+    run_generator(&["check"])
+}
+
 /// `cargo xtask test-extra`: the `tests/` workspace tests on stable (vector check, schema,
 /// external vectors, fuzz replay), then cargo-deny on its dependencies.
 pub(crate) fn test_extra(args: &[String]) -> ExitCode {
@@ -89,19 +93,30 @@ pub(crate) fn test_extra(args: &[String]) -> ExitCode {
 }
 
 fn run_test_extra() -> Result<(), String> {
-    let manifest = tests_dir().join("Cargo.toml");
+    side_tests()?;
+    side_deny()
+}
+
+/// The `tests/` workspace tests: vector check, schema, external vectors and fuzz replay.
+pub(crate) fn side_tests() -> Result<(), String> {
     run_status(
         Command::new(cargo())
             .arg("test")
             .arg("--manifest-path")
-            .arg(&manifest)
+            .arg(tests_dir().join("Cargo.toml"))
             .arg("--locked"),
         "tests in tests/ failed (see above)",
+    )
+}
+
+/// cargo-deny on the `tests/` workspace, with its own config.
+pub(crate) fn side_deny() -> Result<(), String> {
+    let manifest = tests_dir().join("Cargo.toml");
+    require_tool(
+        Command::new(cargo()).arg("deny"),
+        "cargo-deny",
+        CARGO_DENY_INSTALL,
     )?;
-    match Command::new(cargo()).args(["deny", "--version"]).output() {
-        Ok(output) if output.status.success() => {}
-        _ => return Err(format!("cargo-deny is not installed: {CARGO_DENY_INSTALL}")),
-    }
     run_status(
         Command::new(cargo())
             .arg("deny")
@@ -146,7 +161,8 @@ pub(crate) fn fuzz(args: &[String]) -> ExitCode {
 }
 
 fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
-    let toolchain = env::var("CRYPTHIX_FUZZ_TOOLCHAIN").unwrap_or_else(|_| "nightly".to_owned());
+    let toolchain =
+        env::var("CRYPTHIX_FUZZ_TOOLCHAIN").unwrap_or_else(|_| FUZZ_TOOLCHAIN.to_owned());
     match toolchain_cargo(&toolchain)
         .args(["fuzz", "--version"])
         .output()
@@ -163,20 +179,37 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
         }
         Err(error) => return Err(format!("cannot run rustup: {error}")),
     }
+    let host = toolchain_host(&toolchain)?;
     let corpus = tests_dir().join("fuzz").join("corpus");
     let corpus_arg = corpus.to_string_lossy().into_owned();
     run_generator(&["seeds", &corpus_arg])?;
     for target in targets {
         let name = target.name;
         println!("fuzz: {name} for {seconds} s");
+        // libFuzzer refuses a corpus directory that does not exist, and structure-aware targets
+        // get no seeds from the vectors.
+        fs::create_dir_all(corpus.join(name))
+            .map_err(|error| format!("cannot create the {name} corpus: {error}"))?;
         let mut command = toolchain_cargo(&toolchain);
         // -O -a: optimised, but keeping debug assertions and overflow checks, so wrapping
         // length arithmetic panics (T-39). The regressions directory is a second, read-only
         // corpus; libFuzzer writes new inputs only to the first. The malloc limit catches a
-        // parser that allocates for a declared length before checking it (FS-11).
+        // parser that allocates for a declared length before checking it (FS-11). The target is
+        // the toolchain's host: cargo-fuzz otherwise builds for the triple it was itself built
+        // for, and its prebuilt Linux release is musl, where the address sanitizer cannot run.
         command
             .current_dir(tests_dir())
-            .args(["fuzz", "run", "--fuzz-dir", "fuzz", "-O", "-a", name])
+            .args([
+                "fuzz",
+                "run",
+                "--fuzz-dir",
+                "fuzz",
+                "-O",
+                "-a",
+                "--target",
+                &host,
+                name,
+            ])
             .arg(corpus.join(name))
             .arg(tests_dir().join("fuzz").join("regressions").join(name))
             .arg("--")
@@ -196,14 +229,30 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
         run_status(
             &mut command,
             &format!(
-                "fuzz target {name} failed; the input is in tests/fuzz/artifacts/{name}/. \
-                 Minimise it with `cd tests && cargo +{toolchain} fuzz tmin --fuzz-dir fuzz \
-                 {name} fuzz/artifacts/{name}/<file>` and save it under \
-                 tests/fuzz/regressions/{name}/ (see tests/README.md)"
+                "fuzz target {name} failed (see above). If it found a crash, the input is in \
+                 tests/fuzz/artifacts/{name}/: minimise it with `cd tests && cargo +{toolchain} \
+                 fuzz tmin --fuzz-dir fuzz --target {host} {name} fuzz/artifacts/{name}/<file>` \
+                 and save it under tests/fuzz/regressions/{name}/ (see tests/README.md)"
             ),
         )?;
     }
     Ok(())
+}
+
+/// The host triple of `toolchain`, from `rustc -vV`.
+fn toolchain_host(toolchain: &str) -> Result<String, String> {
+    let output = Command::new("rustup")
+        .args(["run", toolchain, "rustc", "-vV"])
+        .output()
+        .map_err(|error| format!("cannot run rustup: {error}"))?;
+    if !output.status.success() {
+        return Err(format!("`rustup run {toolchain} rustc -vV` failed"));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_owned)
+        .ok_or_else(|| format!("`rustc -vV` of {toolchain} names no host"))
 }
 
 /// Runs the vector generator with `args`.
@@ -253,8 +302,6 @@ fn usage(text: &str) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use std::fs;
 
     #[test]
     fn fuzz_targets_match_the_fuzz_binaries() {
