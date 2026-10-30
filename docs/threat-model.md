@@ -925,7 +925,7 @@ A window is a known gap between when a feature ships and when the feature that p
 | OQ-13 | Is there a FIPS mode (AES-256-GCM, validated modules) for compliance users? | Crypto wrappers (P1) |
 | OQ-14 | Does `getxattr` on secret classes leak class labels or canary markers? | A1 (P2), with M-23 |
 | OQ-15 | Pack size classes and packing policy for small commits ([format spec 22](format-spec.md#22-open-items)) | MVP benchmarks (P2) |
-| OQ-16 | Recovery text wordlist (SLIP-39 or BIP-39) and an optional QR code | CLI v0 (P1) |
+| OQ-16 | Recovery text: whether to offer an optional QR code. *Partly answered (v0.4):* the wordlist is SLIP-39 ([format spec FS-45](format-spec.md#92-share-plaintext-and-recovery-text)) | CLI v0 (P1) |
 | OQ-17 | Should text strings also forbid other invisible characters (U+2028, U+2029, U+200B, U+FEFF, tag characters), or all of Unicode category Cf ([format spec 22](format-spec.md#22-open-items))? | Format 1 freeze at the external audit |
 
 Decisions already taken (2026-10-29): the daemon runs as its own system user (M-15), with a root helper that mounts, loads BPF-LSM and brokers identity (M-20, M-21); A14 uses passphrase or polkit in 0.1 and moves to M-5; per-device signing keys and TPM-protected device keys are format requirements (M-14); new mitigations stay as M- IDs attached to existing backlog items.
@@ -955,6 +955,7 @@ Decisions already taken (2026-10-29): the daemon runs as its own system user (M-
 | 2026-10-29 | P0 | Arpan, with research assistance | Baseline. 60 threats, 19 mitigations, 11 windows. Daemon user, presence and per-device key decisions recorded |
 | 2026-10-29 | P0 | Five persona reviews: Linux red team, applied cryptographer, AI-agent and supply-chain researcher, storage and resilience engineer, threat-model and compliance auditor | Added T-61–T-97, M-20–M-49, R-16–R-25, OQ-7–OQ-14, risk ratings and compliance notes; fixed precedent citations, phase-matrix over-claims and the Drive/Dropbox retention claim. Found that epoch KEKs as designed cannot be retired (T-79) |
 | 2026-10-29 | P0 | Out-of-cycle review for the format spec, with four persona reviews (applied cryptographer, parser engineer, storage engineer, auditor) | Format spec v0.3 written after two rounds of persona review (round two: malicious-server cryptanalyst, Rust implementer, plan-conformance auditor, privacy and recovery engineer); M-8, M-9, M-14, M-37, M-39, M-40 and M-44 reworded; AS-3, T-79, SP-C8, W6 and section 10 updated; OQ-2, OQ-5 and OQ-9 answered, OQ-1 partly; OQ-15 and OQ-16 added; SP-C3, SP-C5, SP-C6, W4, W5, T-37, T-38, T-43, T-47 and T-85 updated |
+| 2026-10-30 | P0 | Out-of-cycle review for format spec v0.4 and v0.5 and the fuzzing and test-harness item | No new threats or flows. M-29 and M-44 now name what landed in P0 (fuzz targets for the `crypthix-types` parsers, the `crypthix-testkit` crash-point harness) and what waits for P1 and P2; OQ-16 partly answered (SLIP-39). Backlog checked against 11.1, 12.2 and 14: every M-, window and open question is cited by the item it lands with |
 
 ### 15.4 Changelog
 
@@ -963,6 +964,7 @@ Decisions already taken (2026-10-29): the daemon runs as its own system user (M-
 | v0.1 | 2026-10-29 | First version |
 | v0.2 | 2026-10-29 | Persona review merged (see review log) |
 | v0.3 | 2026-10-29 | Format spec cross-references (see review log) |
+| v0.4 | 2026-10-30 | Format spec v0.4 and v0.5 and the fuzzing and test-harness item (see review log) |
 
 ---
 

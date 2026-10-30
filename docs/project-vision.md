@@ -860,7 +860,7 @@ Dates are estimates, not commitments.
 | Guard | Replay recorded infostealer, exfiltration and ransomware behaviour; measure false positives on real developer workloads |
 | Hardening | Attempts to `ptrace`, inject into, or read memory of allowed apps; direct shard reads; malware calling CryptHix admin commands without user presence |
 | Restore | Full disaster-recovery drill on a clean machine; point-in-time restores; rollback, freeze and fork tests with a backend serving old shards; cloud deletion attempts against Object Lock |
-| Performance | Build benchmarks vs plain disk and gocryptfs; FUSE passthrough where available |
+| Performance | Build benchmarks vs plain disk and gocryptfs, including the cost of direct I/O for secret classes |
 | Release | Reproducible builds, signed releases, external audit before 1.0 |
 
 ---
@@ -896,7 +896,7 @@ Dates are estimates, not commitments.
 - **Copies can leak** via editor swap files, compiler caches, `/tmp` and unencrypted swap; A9 redirects or blocks what it can.
 - **Much of the protection is access control.** Encryption adds safety for stolen disks, backups and cloud sync, plus rotation and verifiable history.
 - **Re-encryption costs I/O.** Rotating 1 TB of data keys means reading and writing 1 TB; rate budgets keep it in the background.
-- **FUSE adds overhead**; FUSE passthrough (Linux 6.9+) helps.
+- **FUSE adds overhead**, and secret classes use direct I/O with no page cache. FUSE passthrough (Linux 6.9+) would help, but it needs a plaintext backing file, so CryptHix never uses it ([threat model M-1](threat-model.md#111-new-mitigations-design-requirements)).
 - **Metadata leaks remain**: number of shards, commits and devices, timing, which device signed each commit, and approximate sizes ([format spec 2.1](format-spec.md#21-what-a-backend-learns)).
 - **Deleting a file is not erasure** until the deletion horizon has passed; changing a passphrase does not revoke the old one ([format spec 2.2](format-spec.md#22-limits-of-format-0-in-phase-1)).
 - **Unaudited crypto is experimental.** No production use before the 1.0 audit.
