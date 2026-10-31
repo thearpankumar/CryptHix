@@ -4,9 +4,19 @@
 useDefault = true
 
 [[allowlists]]
-description = "Published test vectors vendored unchanged: their keys are public test data (see each SOURCE file)"
+description = "Published test vectors vendored or transcribed unchanged: their keys are public test data (see each SOURCE file)"
 # Exact files only, so anything else added under external/ is still scanned.
 paths = [
     '''^tests/test-vectors/external/blake3/test_vectors\.json$''',
     '''^tests/test-vectors/external/wycheproof/xchacha20_poly1305_test\.json$''',
+    '''^tests/test-vectors/external/rfc8032/ed25519\.json$''',
+    '''^tests/test-vectors/external/rfc8439/aead\.json$''',
+    '''^tests/test-vectors/external/xchacha-draft/(hchacha|stream)\.json$''',
+]
+
+[[allowlists]]
+description = "Generated format vectors: keys drawn from the public seed in each file's header (FS-94)"
+paths = [
+    '''^tests/test-vectors/crypthix/v0/tv-04-domain-separation\.json$''',
+    '''^tests/test-vectors/crypthix/v0/tv-05-cx-aead\.json$''',
 ]

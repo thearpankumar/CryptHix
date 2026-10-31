@@ -1,6 +1,6 @@
 [package]
 name = "crypthix-crypto"
-description = "The only crate that uses cryptography libraries: zeroizing key types and protected key memory."
+description = "The only crate that uses cryptography libraries: suite 0x0001 wrappers and zeroizing key types."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,64 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+argon2 = { version = "0.6.0", default-features = false, features = ["zeroize"] }
+blake3 = { version = "1.8.7", default-features = false, features = ["zeroize", "std"] }
+chacha20 = { version = "0.10.2", default-features = false, features = ["rng"], optional = true }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+crypthix-types.workspace = true
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast", "zeroize"] }
+getrandom = "0.4.3"
+hkdf = "0.13.0"
+sha2 = { version = "0.11.1", default-features = false, features = ["zeroize"] }
+subtle = { version = "2.6.1", default-features = false }
+zeroize = { version = "1.9.1", features = ["derive"] }
 
 [lints]
 workspace = true
+
+[features]
+# The seeded ChaCha20 stream for the vector generator (FS-94). Release builds must never enable
+# it; `cargo xtask check-features` fails if anything in the main workspace does (FS-01).
+test-rng = ["dep:chacha20"]
+# Exposes the CX-AEAD failure names `Commitment` and `AeadTag`, keys built from chosen bytes and
+# seals with a chosen nonce, for the vector runners (FS-28). Same rule as `test-rng`.
+vectors = []
+
+[dev-dependencies]
+chacha20 = { version = "0.10.2", features = ["xchacha"] }
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+proptest = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[[bench]]
+name = "cx_aead"
+harness = false
+
+[[test]]
+name = "kat_wycheproof"
+required-features = ["vectors"]
+
+[[test]]
+name = "kat_blake3"
+required-features = ["vectors"]
+
+[[test]]
+name = "kat_speccheck"
+required-features = ["vectors"]
+
+[[test]]
+name = "kat_rfc"
+required-features = ["vectors"]
+
+[[test]]
+name = "properties"
+required-features = ["vectors"]
+
+[[test]]
+name = "tv04"
+required-features = ["vectors"]
+
+[[test]]
+name = "tv05"
+required-features = ["vectors"]

@@ -2,9 +2,17 @@ draft-irtf-cfrg-xchacha-03, XChaCha: eXtended-nonce ChaCha and AEAD_XChaCha20_Po
 
 source:     https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-xchacha-03
 sections:   2.2.1 (HChaCha20), A.3.1 (AEAD_XCHACHA20_POLY1305), A.3.2 (XChaCha20)
-status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
-            the crypthix-crypto item, so every transcribed value is checked the day it lands.
-used by:    TV-01 (format spec FS-05)
+status:     transcribed 2026-10-30 from the plain-text document at the source URL; hex
+            dumps copied byte for byte, nothing recomputed. The crypthix-crypto runners
+            check every value against the primitive.
+files:
+  section 2.2.1 -> hchacha.json
+  section A.3.1 -> aead.json
+  sections A.3.2.1 and A.3.2.2 -> stream.json
+used by:    TV-01 (format spec FS-05); runners in crypthix-crypto
 blobs:      git blob IDs (git hash-object) of the files here; checked
             by `cargo xtask check-vendored`
   fc7fc9cf8b01878afcb94145716c949558c3735a  LICENSE
+  6f282ba03efd2027f3fcc0aa7d64619a4efc9e8a  aead.json
+  83ec91535d22adb775a77b228449ed8bd41d530d  hchacha.json
+  ffcda92d4bd2fc2632077402ff6dc58bf0a63c02  stream.json

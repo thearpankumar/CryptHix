@@ -51,8 +51,8 @@ fn every_source_has_provenance_and_a_licence() {
         let dir = external().join(source);
         let provenance = fs::read_to_string(dir.join("SOURCE")).expect("SOURCE file");
         assert!(
-            provenance.contains("commit:") || provenance.contains("status:     not transcribed"),
-            "{source}/SOURCE pins a commit or says the vectors are not transcribed yet"
+            provenance.contains("commit:") || provenance.contains("status:     transcribed"),
+            "{source}/SOURCE pins a commit or says when its vectors were transcribed"
         );
         let licence = fs::read_to_string(dir.join("LICENSE")).expect("LICENSE file");
         assert!(!licence.trim().is_empty(), "{source}/LICENSE is empty");
@@ -82,6 +82,8 @@ fn every_vendored_file_is_listed_and_parses() {
                 .unwrap_or_else(|error| panic!("{source}/{name}: {error}"));
             if source == "wycheproof" {
                 check_wycheproof_count(&value, &name);
+            } else if provenance.contains("status:     transcribed") {
+                check_transcribed_count(&value, &name);
             }
         }
     }
@@ -96,5 +98,12 @@ fn check_wycheproof_count(file: &Value, name: &str) {
         .iter()
         .map(|group| group["tests"].as_array().expect("tests").len())
         .sum();
+    assert_eq!(counted as u64, declared, "{name}");
+}
+
+/// A transcribed file declares how many cases it holds, so a dropped case is caught.
+fn check_transcribed_count(file: &Value, name: &str) {
+    let declared = file["numberOfTests"].as_u64().expect("numberOfTests");
+    let counted = file["tests"].as_array().expect("tests").len();
     assert_eq!(counted as u64, declared, "{name}");
 }

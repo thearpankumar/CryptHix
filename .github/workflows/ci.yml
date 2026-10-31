@@ -53,6 +53,7 @@ jobs:
             side:
               - "tests/**"
               - "crates/foundation/types/**"
+              - "crates/foundation/crypto/**"
               - "xtask/**"
               - "Cargo.lock"
               - "rust-toolchain.toml"
@@ -61,6 +62,7 @@ jobs:
               - "tests/fuzz/**"
               - "tests/Cargo.lock"
               - "crates/foundation/types/src/**"
+              - "crates/foundation/crypto/src/**"
               - "xtask/src/side.rs"
               - ".github/workflows/ci.yml"
             mutants:
@@ -293,7 +295,7 @@ jobs:
         # Library code only, like the path filter above; the weekly run covers the workspace.
         run: |
           git diff "$BASE...HEAD" -- crates/ > "$RUNNER_TEMP/pr.diff"
-          cargo mutants --in-diff "$RUNNER_TEMP/pr.diff" --in-place --no-shuffle --test-tool nextest
+          cargo mutants --in-diff "$RUNNER_TEMP/pr.diff" --in-place --no-shuffle --test-tool nextest --all-features
       - name: Upload the mutation report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

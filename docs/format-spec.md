@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | Format 0, draft v0.5 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
+| Status | Format 0, draft v0.6 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, the primitives, label registry and CX-AEAD in `crypthix-crypto`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Format / suite | Format version `0x0000`, suite `0x0001` |
@@ -201,7 +201,7 @@ flowchart TB
 | `root_seq`, `config_seq`, `device_set_seq`, `cert_seq` | u64 | Counter from 1 | Yes |
 | `object_version`, log `seq` | u64 | Counter from 1 | No (log `seq` from P3: yes) |
 
-**FS-01.** Keys, nonces, salts and random IDs MUST come straight from the kernel (`getrandom`), which the kernel reseeds after a VM restore (M-36, T-81). Implementations MUST NOT keep a user-space RNG that a fork could duplicate. The only seeded RNG is the test-vector generator, behind a feature that release builds cannot enable ([FS-94](#20-test-vectors)).
+**FS-01.** Keys, salts, random IDs and the randomness that every nonce is hedged with MUST come straight from the kernel (`getrandom`) (M-36, T-81). Linux reseeds it after a VM restore only when the hypervisor exposes a VM generation ID (`vmgenid`, Linux 5.18 and later); without one, a restored snapshot can replay its random output. No nonce is therefore taken straight from `getrandom`: every nonce is hedged or synthetic (FS-29), so replayed randomness repeats a nonce only for an identical seal. Random IDs, salts and keys drawn after such a restore can still repeat; the commit's compare-and-swap on the vault root (FS-87) rejects a write that collides with one already committed. Implementations MUST NOT keep a user-space RNG that a fork could duplicate. The only seeded RNG is the test-vector generator, behind a feature that release builds cannot enable ([FS-94](#20-test-vectors)).
 
 **FS-02.** A reader MUST recompute `vault_id` from `master_pk` and `vault_nonce` and reject a mismatch (`VaultId`). The `vault_id` the user holds (recovery sheet, first unlock) is the trust anchor: it pins the master key, so a backend cannot substitute its own (T-37). The comparison MUST be done by machine on all 16 bytes (typed, pasted or scanned), never by eye on a prefix. 128 bits resist second preimages; if `vault_id` ever becomes a global name across users, it grows to 32 bytes in a new format.
 
@@ -224,7 +224,7 @@ flowchart TB
 | Erasure coding | Reed-Solomon over GF(2^16) | — | `reed-solomon-simd` |
 | KEM (*Reserved P4*) | X-Wing ([draft-connolly-cfrg-xwing-kem-11](https://www.ietf.org/archive/id/draft-connolly-cfrg-xwing-kem-11.html)) | encapsulation key 1216, ciphertext 1120, shared secret 32 | `x-wing`, or `ml-kem` with `x25519-dalek` |
 
-Why XChaCha20-Poly1305: random 192-bit nonces are safe without counters, it needs no AES hardware, and the per-nonce subkey of CX-AEAD removes any per-key usage limit (T-38). AES-256-GCM is not in format 0; a FIPS suite would be a new format (OQ-13).
+Why XChaCha20-Poly1305: 192-bit nonces need no counters, it needs no AES hardware, and the per-nonce subkey of CX-AEAD removes any per-key usage limit (T-38). AES-256-GCM is not in format 0. There is no FIPS mode: XChaCha20, BLAKE3 and Argon2id are not FIPS-approved, so a FIPS suite would be a new suite on a validated module, planned after 1.0 as the backlog's FIPS suite item (OQ-13, decided).
 
 ---
 
@@ -332,7 +332,7 @@ sig_input = u8 len(type_label) ‖ type_label ‖ ctx[16] ‖ signer[32] ‖ u64
 | Device proof of possession | 0x22 | `sig/device-pop` |
 | Epoch device wrap | 0x23 | `sig/epoch-device-wrap` |
 
-**FS-14.** Ed25519 verification MUST be strict: use `verify_strict` of a pinned `ed25519-dalek` version, which rejects S ≥ L, small-order R and weak public keys. In addition, the reader MUST re-encode the decoded A and R and compare them with the input bytes, so non-canonical encodings fail too. A key for which `is_weak()` is true is never certified or accepted (`WeakKey`). TV-14 runs the [ed25519-speccheck](https://github.com/novifinancial/ed25519-speccheck) cases. A failed signature is `Signature`.
+**FS-14.** Ed25519 verification MUST be strict: use `verify_strict` of a pinned `ed25519-dalek` version, which rejects S ≥ L, small-order R and weak public keys. In addition, the reader MUST re-encode the decoded A and R and compare them with the input bytes, so non-canonical encodings fail too. A key that is not in the prime-order subgroup, whether of small order (`is_weak()`) or with a torsion component (mixed order, which `verify_strict` alone accepts), is never certified or accepted (`WeakKey`); every key made from a seed passes. TV-14 runs the [ed25519-speccheck](https://github.com/novifinancial/ed25519-speccheck) cases. A failed signature is `Signature`.
 
 **FS-15.** Every comparison of a tag, commitment, MAC, hash or key ID that decides authenticity MUST run in constant time.
 
@@ -396,7 +396,7 @@ Every label has the form `crypthix/v0/<class>/<purpose>` and serves exactly one 
 
 `H(label, x) = BLAKE3(u8 len(label) ‖ label ‖ x)`. `KDF(ikm, salt, label, ctx) = HKDF-Expand(HKDF-Extract(salt, ikm), u8 len(label) ‖ label ‖ ctx, 32)`; an empty salt is HKDF's default of 32 zero bytes. Every hash of a whole file (`*_file_hash`, `config_hash`, `device_set_hash`, `cert_hash`) is `H(hash/file, file)`; `pack_hash = H(hash/pack, pack bytes)`. KDF contexts do not repeat `fmt` and `suite`: every AAD already carries them, and the labels carry the format.
 
-**FS-25.** Each key has one purpose and is derived under one label. A key MUST NOT be used with two primitives or two labels (the key reuse that the gocryptfs audit and the MEGA attacks exploited). Signing seeds are used only for signing.
+**FS-25.** Each key has one purpose and is derived under one label. A key MUST NOT be used with two primitives or two labels (the key reuse that the gocryptfs audit and the MEGA attacks exploited). The one exception is CX-AEAD's own use of its key K as an HKDF PRK under `cx-key`, `cx-commit` and `cx-nonce` (FS-27, FS-29): one primitive, three labels whose infos differ in their first byte, so the outputs are independent. Signing seeds are used only for signing.
 
 **FS-26.** HKDF-SHA-256 is the only KDF. BLAKE3 is used for `H` and, in keyed mode, only under keys that `KDF` derived for that one purpose.
 
@@ -425,15 +425,14 @@ HKDF-Expand is keyed directly by K, which RFC 5869 section 3.3 allows for unifor
   overhead: 72 bytes. A wrapped 32-byte key is 104 bytes.
 ```
 
-**FS-28.** Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle.
+**FS-28.** A key wrap and a data seal never share an AAD label: the key-wrap labels (`keyring`, `epoch`, `vault-sign-key`, `device-key`, `dek-wrap`, `pack-key-wrap`, `log-key`) are sealed and opened only as wrapped keys, so a wrapped key's bytes never reach a caller and chosen bytes never become a key (backlog rule 9). An all-zero nonce is `ZeroValue` (FS-03). Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle.
 
-**FS-29.** Nonces are 24 bytes and come in three kinds:
+**FS-29.** Nonces are 24 bytes and come in two kinds. Neither is taken straight from `getrandom`: following the hedging framework of [Ristenpart and Yilek (NDSS 2010)](https://www.cs.toronto.edu/~ristenpart/papers/sslhedge.html), the randomness is mixed with the key, the AAD and the plaintext, so repeated randomness (a VM restored from a snapshot, T-81) leaks at most that two seals are equal, the minimum any deterministic scheme leaks ([RFC 8452](https://www.rfc-editor.org/rfc/rfc8452)). This is a privacy bound; authenticity rests, as always, on the commitment and the Poly1305 tag under the per-nonce key:
 
 | Kind | Used for | Nonce |
 | --- | --- | --- |
-| Random | Data blobs, meta blobs, manifests, pack headers, config and root sealed parts, log bodies | 24 bytes from `getrandom` |
-| Hedged | Key wraps (slots, keyring, epoch files, vault signing key, device keys, DEK and pack-key wraps) | `MAC(K_n, rand[32] ‖ a ‖ pt)[..24]` with `K_n = HKDF-Expand(K, u8 len ‖ "crypthix/v0/kdf/cx-nonce", 32)` (M-36). If the RNG fails, equal inputs give equal wraps, which leaks only equality |
-| Synthetic (SIV) | Shard headers | `MAC(K_shn, a ‖ header plaintext)[..24]`: a rebuilt shard is byte-identical ([FS-62](#107-shard-file)), and a different header under the same key always gets a different nonce |
+| Hedged | Every sealed field except shard headers: data and meta blobs, manifests, pack headers, config and root sealed parts, log bodies, and key wraps (slots, keyring, epoch files, vault signing key, device keys, DEK and pack-key wraps) | `MAC(K_n, rand[32] ‖ a ‖ pt)[..24]` with `K_n = HKDF-Expand(K, u8 len ‖ "crypthix/v0/kdf/cx-nonce", 32)` and `rand` from `getrandom` (M-36). If the RNG repeats its output, only an identical seal gets the same nonce, and then the same ciphertext, which leaks only equality; if the RNG fails, nothing is sealed. It costs one keyed BLAKE3 pass over the plaintext before encryption |
+| Synthetic (SIV) | Shard headers | `MAC(K_shn, a ‖ header plaintext)[..24]`: a rebuilt shard is byte-identical ([FS-62](#107-shard-file)), and a different header under the same key gets a different nonce except with probability about q²/2^193 for q headers (the 192-bit truncation) |
 
 **FS-30.** A key lookup that misses (an unknown `dek_id`, epoch, pack or `key_id`) is `MissingKey`. It MUST NOT produce a default, zero or derived stand-in key.
 
@@ -722,7 +721,7 @@ The total length MUST be `padme(6 + payload_len)`, where for `L ≥ 2`: `E = ⌊
 | 0x07 | Snapshot node | — | *Reserved P3* |
 | 0x08 | GC-candidate node | `K_loc_e` | [FS-91](#17-commit-rotation-and-garbage-collection) |
 
-**FS-55.** A data blob is `Seal(K_chunk, aad, inner_plaintext, random nonce)` with:
+**FS-55.** A data blob is `Seal(K_chunk, aad, inner_plaintext, hedged nonce)` with:
 
 ```text
 aad = u8 len ‖ "crypthix/v0/aad/blob-data" ‖ fmt ‖ suite ‖ vault_id ‖ u8 0x01
@@ -733,7 +732,7 @@ The AAD binds each chunk to its vault, object and DEK. Version, position, order,
 
 **FS-56.** After opening an ordinary data blob, the reader MUST recompute `blob_id` from the decrypted chunk and compare (`Binding`).
 
-**FS-57.** A meta blob of kind 0x03–0x06 or 0x08 is `Seal(K_kind_e, aad, CBOR, random nonce)` with a random `blob_id` and:
+**FS-57.** A meta blob of kind 0x03–0x06 or 0x08 is `Seal(K_kind_e, aad, CBOR, hedged nonce)` with a random `blob_id` and:
 
 ```text
 aad = u8 len ‖ "crypthix/v0/aad/blob-meta" ‖ fmt ‖ suite ‖ vault_id ‖ u8 kind
@@ -821,7 +820,7 @@ Trees are built deterministically: each level is filled left to right with at mo
 +--------+--------+-----+--------+-------------+--------------------+-----------+
 ```
 
-**FS-60.** The pack header is `Seal(K_ph, aad, plaintext, random nonce)` with AAD `aad/pack-header ‖ fmt ‖ suite ‖ vault_id ‖ pack_id ‖ u8 pack_kind`. Its plaintext is one CBOR item followed by zero bytes, padded so the sealed header is a power of two of at least 4 KiB; the reader decodes exactly one item and requires the rest to be zero (`Padding`). `hdr_len` is clear and shows the header's size class only. A reader MUST check, in u64 arithmetic with overflow checks (`Layout`):
+**FS-60.** The pack header is `Seal(K_ph, aad, plaintext, hedged nonce)` with AAD `aad/pack-header ‖ fmt ‖ suite ‖ vault_id ‖ pack_id ‖ u8 pack_kind`. Its plaintext is one CBOR item followed by zero bytes, padded so the sealed header is a power of two of at least 4 KiB; the reader decodes exactly one item and requires the rest to be zero (`Padding`). `hdr_len` is clear and shows the header's size class only. A reader MUST check, in u64 arithmetic with overflow checks (`Layout`):
 - the pack length equals `2^size_class`;
 - `hdr_len` is a power of two, at least 4,096, and `hdr_len + 4 ≤ pack length`;
 - every entry has `length ≥ 72` and `offset + length ≤ pack length − 4 − hdr_len`;
@@ -947,7 +946,7 @@ chunk-ref = [
 
 ## 12. Path index
 
-The path index maps each path to its current object version. It is a Merkle B+ tree of meta blobs of kind `0x03`. There is no `path_hash` anywhere (answers OQ-2): paths appear only inside sealed index nodes, which are re-sealed under a fresh random nonce whenever they change.
+The path index maps each path to its current object version. It is a Merkle B+ tree of meta blobs of kind `0x03`. There is no `path_hash` anywhere (answers OQ-2): paths appear only inside sealed index nodes, which are re-sealed with a fresh hedged nonce (FS-29) whenever they change.
 
 **FS-70.** Paths MUST NOT appear on a backend in clear or as a stable keyed or unkeyed hash (M-39, T-59).
 
@@ -1292,7 +1291,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `KdfBelowFloor` | FS-41 | Argon2id parameters too weak |
 | `KdfAboveCeiling` | FS-41 | Argon2id parameters too costly |
 | `Signature` | FS-13, FS-14, FS-86 | Signature or MAC invalid |
-| `WeakKey` | FS-14 | Small-order or non-canonical public key |
+| `WeakKey` | FS-14 | Small-order, mixed-order or non-canonical public key |
 | `CertChain` | FS-76, FS-77 | Certificate missing, wrong vault, wrong capability or stale |
 | `Revoked` | FS-77 | Signer not active in the device set |
 | `Expired` | FS-76, FS-83, FS-86 | Outside a validity window |
@@ -1328,7 +1327,9 @@ tests/test-vectors/
   schema/vector-file.schema.json     JSON Schema for every file below
   external/<source>/                 vendored, unchanged, each with SOURCE and LICENSE
     wycheproof/                      XChaCha20-Poly1305, Ed25519, HKDF (X25519 with E13)
-    rfc8439/  xchacha-draft/  rfc5869/  rfc9106/  rfc8032/  blake3/  ed25519-speccheck/
+    blake3/  ed25519-speccheck/      copied unchanged at a pinned commit
+    rfc8439/  xchacha-draft/  rfc5869/  rfc9106/  rfc8032/
+                                     transcribed byte for byte from the documents to JSON
   crypthix/v0/tv-<NN>-<name>.json    CryptHix format vectors (sets below)
   gen/                               dev-only generator crate: write, check, seeds
 ```
@@ -1366,10 +1367,10 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 - Every `flag` cites at least one M- or T- ID and the FS rule it tests.
 - Every `expect` is `Ok` or a name from [section 19](#19-errors). Only TV-05 expects `Commitment` or `AeadTag`; every other set expects `Decrypt` for a CX-AEAD failure.
 - Every rule that can fail has at least one negative vector.
-- The generator uses a seeded `ChaCha20Rng` behind a `test-rng` feature and draws only through `fill_bytes` on a separately labelled stream per test, never through `gen_range` or other distributions that may change between `rand` releases. A build check fails if any release binary enables the feature (FS-01). The stream and the check come with `crypthix-crypto`; TV-02, TV-03 and TV-17 draw no randomness, and the generator writes their bytes by hand rather than through the decoder they test.
+- The generator uses a seeded `ChaCha20Rng` (from the `chacha20` crate) behind the `test-rng` feature of `crypthix-crypto` and draws only through `fill_bytes` on a separately labelled stream per test, seeded with keyed BLAKE3 of the set's `seed` and the label, never through `gen_range` or other distributions that may change between `rand` releases. `cargo xtask check-features` fails if a release build of the main workspace would enable `test-rng` or `vectors` (FS-01). TV-02, TV-03 and TV-17 draw no randomness, and the generator writes their bytes by hand rather than through the decoder they test. For TV-04 and TV-05 the generator computes `H`, `KDF`, `MAC`, CX-AEAD and the nonces with its own code over the audited crates, written from section 7 and not from `crypthix-crypto`, so the two implementations check each other.
 - zstd is pinned to one version, since its output may change between versions.
 - CI regenerates the vectors and diffs them against the committed files (`cargo xtask vectors --check`). Vectors are frozen per format; changing a committed vector needs a changelog row here.
-- Argon2id vectors run at the 256 MiB floor and are marked slow; CI runs them once per change to the format crates.
+- Argon2id vectors run at the 256 MiB floor and are marked slow (`#[ignore]`); the scheduled deep-test job runs them with `--ignored`.
 - Before the 1.0 audit, a second, independent decoder (for example a short Python reader) runs every set.
 
 ### 20.3 Sets
@@ -1379,8 +1380,8 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | TV-01 | External known-answer tests for every primitive | FS-05 | P1 |
 | TV-02 | Preamble: magic, type, flags, lengths, per-type caps | FS-06, FS-07 | P1 |
 | TV-03 | Deterministic CBOR, key order, text, null, limits | FS-08–FS-11 | P1 |
-| TV-04 | Labels, `H`, `KDF`, every derived key of FS-38, zero values | FS-03, FS-04, FS-12, FS-25, FS-26, FS-38 | P1 |
-| TV-05 | CX-AEAD seal, open, commitment, nonce kinds | FS-27–FS-29 | P1 |
+| TV-04 | Labels, `H`, `KDF`, `MAC`, the gear-table XOF, every derived key of FS-38, zero values | FS-03, FS-04, FS-12, FS-25, FS-26, FS-38, FS-52 | P1 |
+| TV-05 | CX-AEAD seal, open, commitment, nonce kinds, an all-zero nonce | FS-03, FS-27–FS-29, FS-62 | P1 |
 | TV-06 | Key wraps: keyring, epoch, vault signing key, device key, DEK, pack key | FS-03, FS-32–FS-36, FS-50 | P1 |
 | TV-07 | Chunking boundaries, compression, padding, data and meta blobs | FS-52–FS-57 | P1 |
 | TV-08 | Share slots and Argon2id | FS-40, FS-41 | P1 |
@@ -1426,7 +1427,7 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | Pack length not its class; header size not a power of two; entry out of bounds or overlapping | TV-11 | `Layout` | FS-60 |
 | Shard reserved bytes non-zero; `k + m > 255`; stripe length wrong | TV-12 | `Layout` | FS-62 |
 | Shard name does not match its hash; pack hash wrong | TV-12 | `ShardHash` | FS-63, FS-64, T-47 |
-| Two shard headers with different contents get the same nonce | TV-05 | must never occur (SIV) | FS-29 |
+| Two shard headers with different contents get the same nonce | TV-05 | must not occur except with negligible probability (SIV, about q²/2^193) | FS-29 |
 | Chunk dropped, duplicated or reordered; final chunk missing; count changed | TV-13 | `ChunkList`, `Merkle` | FS-66, FS-67, M-8, T-35 |
 | Leaf presented as a node; wrong leaf count | TV-13 | `Merkle` | FS-66, M-37, T-83 |
 | Manifest version gap or broken chain; author differs from signer | TV-13 | `Rollback`, `Binding` | FS-65, FS-68 |
@@ -1521,7 +1522,7 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | OQ-5 Default AEAD | Answered: XChaCha20-Poly1305 inside CX-AEAD, suite `0x0001` (FS-05) |
 | OQ-9 Deduplication scope | Answered: within one object for multi-chunk ordinary files, none for secrets or single-chunk files (FS-55) |
 | OQ-11 Concurrent edits | Open; fields and feature bit reserved (FS-89) |
-| OQ-13 FIPS mode | Open; would be a new format with an AES-GCM suite |
+| OQ-13 FIPS mode | Decided (v0.6): no FIPS mode in format 0; a FIPS suite would be a new suite on a validated module, a backlog item after 1.0 (Phase 5) |
 
 ---
 
@@ -1541,6 +1542,7 @@ All three are tracked in [threat-model section 14](threat-model.md#14-open-quest
 
 | Version | Date | Change |
 | --- | --- | --- |
+| v0.6 | 2026-10-30 | From the crypto wrappers item (`crypthix-crypto`). Every nonce that was random is now hedged (FS-29, FS-55, FS-57, FS-60), because the kernel reseeds after a VM restore only with a VM generation ID (FS-01, T-81); readers are unaffected, since Open reads the nonce from the seal. FS-29 also says a failed RNG seals nothing, states that the equality bound is about privacy and the SIV distinctness bound, and FS-25 names CX-AEAD's internal labels as its one exception. FS-28 separates key-wrap labels from data labels and makes an all-zero nonce `ZeroValue`; the path index text says hedged. TV-05 has a hedged pair with replayed randomness and an all-zero nonce. FS-14 also rejects mixed-order public keys (`WeakKey`): `verify_strict` alone accepts them, as Wycheproof tcId 160 to 180 and speccheck case 3 show. TV-04 and TV-05 added; the generator computes them with its own section 7 code (FS-94), and `expect` may name `Commitment` and `AeadTag` in TV-05 only. The RFC and XChaCha draft vectors are transcribed to JSON (20.1). OQ-13 decided: no FIPS mode in format 0 |
 | v0.5 | 2026-10-29 | From the fuzzing and test-harness item; no valid bytes change. `tests/` is its own workspace, holding the generator and the fuzz targets (20.1). The vector schema is draft 2020-12; `seed` and `zstd` are optional for sets with no randomness or compression, and sets may add header strings (20.2). The seeded generator stream arrives with `crypthix-crypto` (FS-94). External vectors: Wycheproof, BLAKE3 and ed25519-speccheck vendored unchanged; RFC vectors are transcribed with their runners |
 | v0.4 | 2026-10-29 | From implementing `crypthix-types` and four persona reviews of it. Configs are immutable and named `configs/<config_seq>.chx`, since a config replaced in place broke crash safety (FS-87); only share slots are replaced in place. Clarifications that change no valid bytes: preamble check order (FS-07); `Limit` versus `Truncated` for short input and how items are counted (FS-11); control characters are Unicode Cc including DEL (FS-10); the negative GREASE key is −v and GREASE entries are kept for exact re-encoding (FS-22); byte-order error precedence, with a tag, float or simple value as a key being `NonCanonical` (FS-93); non-canonical store names of a known shape are `NameMismatch` (FS-92); `sender_id` added to 4.1 |
 | v0.3 | 2026-10-29 | Second round of four persona reviews (malicious-server cryptanalyst, Rust implementer, plan-conformance auditor, privacy and recovery engineer). Root rotation now also replaces the master key, `vault_id`, epoch and device set; config pins a minimum device set; SIV shard-header nonces; slot AAD covers every clear key; no reuse for single-chunk files; passphrase-change and deletion limits stated, with a `shred` operation and deletion horizon; GC candidates in meta blobs and padded root; recovery sheet metadata and vault-bound checksum; byte-exact CDDL for trees and references, Padmé formula, zstd and FastCDC parameters; opaque `Decrypt` error; leakage list completed |

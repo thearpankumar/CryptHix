@@ -10,7 +10,7 @@ use std::env;
 use std::process::Command;
 
 use crate::process::{cargo, repo_root, require_tool, run_status};
-use crate::{commits, docs_check, pre_commit, side, vendored};
+use crate::{commits, docs_check, features, pre_commit, side, vendored};
 
 /// One CI job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +130,8 @@ fn lint() -> Result<(), String> {
     )?;
     step("layer rules");
     crate::check_layers()?;
+    step("release features");
+    features::check()?;
     step("docs");
     docs_check::check()?;
     step("vendored vectors");
@@ -178,6 +180,14 @@ fn clippy() -> Result<(), String> {
             .args(["clippy", "--workspace", "--all-features"])
             .args(lint_args),
         "clippy found problems (see above)",
+    )?;
+    // Default features are what a release builds, and test-only features change which items
+    // exist, so lint that configuration too.
+    run_status(
+        Command::new(cargo())
+            .args(["clippy", "--workspace"])
+            .args(lint_args),
+        "clippy found problems with default features (see above)",
     )?;
     // The cargo-fuzz crate is left out: libFuzzer needs a C++ compiler even to check, and its
     // binaries only call the harness. The fuzz job builds it.

@@ -66,7 +66,30 @@ fn expect_names_are_the_format_errors() {
         .collect();
     let mut expected = vec!["Ok"];
     expected.extend(FormatError::ALL.iter().map(|error| error.name()));
+    expected.extend(CX_AEAD_CAUSES);
     assert_eq!(names, expected);
+}
+
+/// The two CX-AEAD failure causes that exist only inside `crypthix-crypto` (FS-28).
+const CX_AEAD_CAUSES: [&str; 2] = ["Commitment", "AeadTag"];
+
+#[test]
+fn only_tv05_expects_the_cx_aead_causes() {
+    for path in vector_files() {
+        let file = load(&path);
+        let uses_causes = file["testGroups"]
+            .as_array()
+            .expect("testGroups")
+            .iter()
+            .flat_map(|group| group["tests"].as_array().expect("tests"))
+            .any(|test| CX_AEAD_CAUSES.contains(&test["expect"].as_str().expect("expect")));
+        let is_tv05 = file["set"] == "TV-05";
+        assert!(
+            !uses_causes || is_tv05,
+            "{} expects Commitment or AeadTag; only TV-05 may (FS-94)",
+            path.display()
+        );
+    }
 }
 
 /// A copy of TV-02 with `change` applied must fail validation.

@@ -1,0 +1,486 @@
+{
+  "set": "TV-05",
+  "structure": "cx-aead",
+  "formatVersion": 0,
+  "suiteId": 1,
+  "generator": "crypthix-vector-gen, seeded test-rng stream, independent section 7 code",
+  "seed": "ca5d8a6e010816cdf4c4435e1935db6595aa94bca4bd1387c02f5dc843470883",
+  "notes": {
+    "GivenNonce": {
+      "cites": [
+        "FS-27",
+        "FS-29",
+        "M-9",
+        "T-38"
+      ],
+      "description": "Seal with a given nonce, the definition of FS-27: `nonce ‖ C ‖ ct ‖ tag`."
+    },
+    "HedgedNonce": {
+      "cites": [
+        "FS-29",
+        "M-36",
+        "T-81"
+      ],
+      "description": "Every nonce but a shard header's is `MAC(K_n, rand ‖ a ‖ pt)[..24]`; replayed randomness under another plaintext gives another nonce; a DEK wrap is 104 bytes."
+    },
+    "SyntheticNonce": {
+      "cites": [
+        "FS-29",
+        "FS-62",
+        "T-38"
+      ],
+      "description": "Shard headers use `MAC(K_shn, a ‖ pt)[..24]`; a different header gets a different nonce."
+    },
+    "Opens": {
+      "cites": [
+        "FS-27",
+        "FS-28",
+        "M-9"
+      ],
+      "description": "A valid seal opens to its plaintext."
+    },
+    "CommitmentCheck": {
+      "cites": [
+        "FS-27",
+        "FS-28",
+        "M-9",
+        "T-36"
+      ],
+      "description": "A changed key, nonce, AAD or commitment fails the commitment, which is checked first."
+    },
+    "TagCheck": {
+      "cites": [
+        "FS-28",
+        "M-9"
+      ],
+      "description": "A changed ciphertext or tag reaches the Poly1305 tag check."
+    },
+    "ZeroNonce": {
+      "cites": [
+        "FS-03",
+        "FS-28",
+        "T-37"
+      ],
+      "description": "An all-zero nonce is a zero value."
+    },
+    "Short": {
+      "cites": [
+        "FS-27",
+        "FS-28",
+        "M-9"
+      ],
+      "description": "Input shorter than the 72-byte overhead."
+    }
+  },
+  "testGroups": [
+    {
+      "type": "GivenNonce",
+      "tests": [
+        {
+          "tcId": 1,
+          "comment": "an empty plaintext",
+          "flags": [
+            "GivenNonce"
+          ],
+          "inputs": {
+            "key": "ffdd05a9bb065efb47369965c31aed8d6e5bfd9044bde6c08e4a729599fba2c1",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d6461746100000001ce94bad2282e70dd56c205b9fb158515019300b8651a3bdd5ef711cde7377312fba082763206d38725112a86d30078c378570d6cf0dd83d8895b89ec1827712ea23231478fbfc77c02d1355767cd74198c",
+            "plaintext": "",
+            "nonce": "bc83cd5786c10ce347a036d43a44754754b2913b2f674880"
+          },
+          "expect": "Ok",
+          "sealed": "bc83cd5786c10ce347a036d43a44754754b2913b2f67488074e00425aee8a48f7f648cf7d98488c9df15d179128581664bc67ae4ab4e3645e1dbe85c055a1c4a9ca79c306b4a13a8"
+        },
+        {
+          "tcId": 2,
+          "comment": "a one-byte plaintext",
+          "flags": [
+            "GivenNonce"
+          ],
+          "inputs": {
+            "key": "290da92b44ed42a401541b7be2e96413ac5ff38e510e783aaf1e97961097e108",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d6461746100000001d9091210ed0e751558266f7d7a623713014ba8c718f83a737ddfbc9c16670c45397b5f17c392f47bbdc916f1f73f5d634c88b27a89b335cd62865d6c028497c9522f72e9e6155e8411692995cfa9e4142a",
+            "plaintext": "b3",
+            "nonce": "bb014de81e5d32a0f02fbd45b690dfd3bb67d7f7d8b381f9"
+          },
+          "expect": "Ok",
+          "sealed": "bb014de81e5d32a0f02fbd45b690dfd3bb67d7f7d8b381f9b95748ed51ba153af485e2b60d3c5ddc5c784ba3aa73860e72e5120880f1e3cf1ae47c75650df0034d5496b283b4144f20"
+        },
+        {
+          "tcId": 3,
+          "comment": "a 100-byte plaintext",
+          "flags": [
+            "GivenNonce"
+          ],
+          "inputs": {
+            "key": "adc000c67b1fbe040b4f284bfc634617badd202cb26bb69de099606d60e47e8c",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d6461746100000001d8c2c2768bf2f02503e85dc79a49aafd01bed157c25057ff45390dc77c4abeff409988738777178faa1ee7d8fa8f02e9fde67ab24b6a41a62b0aaecff822473264be53a83b19c047f7bd90b689404e9a06",
+            "plaintext": "de47e2425bbe6385c239712e839d91bf04e581ce5feaa76f5b18de8286a0f69beeb6866216d400ef80e8797f39f511ec14f526b8e7164d2c8a4e6f25bf0e53a33d14cc6b26d51a394749cc57668eb3c696e41f50bbdfb27926df370247d13ff7f59f7656",
+            "nonce": "ecdcfc276a7c60ce38a3340f24f0a5ce89195d5e453ee156"
+          },
+          "expect": "Ok",
+          "sealed": "ecdcfc276a7c60ce38a3340f24f0a5ce89195d5e453ee1564a9bc3849623b1da2093dde6c98910a3180a3db69d6885374a52522e89b5c2ed8a03ce268a6904e8a9f57e9e38779eeb5998b405b51d4566efa64140e97dc545628d5e1ea279280b775419ee32a6eee563d415c24df27f01708e0ffeb0c198ee5cfdd3f403f7c928aaa13708c75bcba5ea1fe73c66de26bba2ef4b8647c29ed8500f63d86e3d198cecf6804d620cfdb09f8bace9"
+        }
+      ]
+    },
+    {
+      "type": "HedgedNonce",
+      "tests": [
+        {
+          "tcId": 4,
+          "comment": "a 104-byte DEK wrap",
+          "flags": [
+            "HedgedNonce"
+          ],
+          "inputs": {
+            "key": "a8d461b883bdd5c5b4e94a1a0a0ee653cd08011cf8955b2cdcc13342fb93b0af",
+            "aad": "1863727970746869782f76302f6161642f64656b2d7772617000000001e711b34be456c0fdf2a851ac884cf82596e90a264cec278cbd3ea06738720c1a540dc27f7c8e5e00aebd009481f55d26f259f73537045aaa71fa6d0b0d3dae821a00cc87307f3505738cebff8b37e42700000003",
+            "plaintext": "6bd1ccd4d380aed3d7d9dc34c442d0d33f4df0ea9e8bd5a18efe3c789cdb16ae",
+            "rand": "4eb5f5044f191dfaee49c51a4c3a0e888cc32c771b50c2cc1c9899b40ca589b0"
+          },
+          "expect": "Ok",
+          "nonce": "b497f8d92592efb566452625b300d3d6f1db226288131a2c",
+          "sealed": "b497f8d92592efb566452625b300d3d6f1db226288131a2cfe1908ca306547eff9141a6c6b42a848bdf2fed5e97c9a02b5072eebe4720d28c7931100f213ea0f54049bed0606ccf33675a326f7d61fb35cf820f58a2590d89809f21361476a58e4716326f6e53bea"
+        },
+        {
+          "tcId": 5,
+          "comment": "a 100-byte data blob",
+          "flags": [
+            "HedgedNonce"
+          ],
+          "inputs": {
+            "key": "6c5101b2fb55b7a32fb3fedb598b87e7cfa48edb0a12c130f192452804ebbe30",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000011d53bc3a833dc796c21000677a1b0d12013d1f8b44c4ba2d2287136dc381717d64db7da017b0c43b21004f7532cadf5e317d5f1b6368f9f17e918db2d317045c97252ca7ad6823773d575960e9b6ce6495",
+            "plaintext": "b800de0ef1542a71b603861aaf4ba36517e0dde66346b964678e65dbb44e4969b728bad18d76f1b4e88318b9417470f1006b8b828f7555c3d3d2ac6528705a28691c0bf68503f0b37731283ade916be1f8f597b16c7a621575e3722509b6051cc14c6580",
+            "rand": "45bb932779e8f59905ea41405652ddf7de736ad5e388990164b460fc2718083f"
+          },
+          "expect": "Ok",
+          "nonce": "eac745f3d4484c41069b72f5619bc564b952cfc4cd096f49",
+          "sealed": "eac745f3d4484c41069b72f5619bc564b952cfc4cd096f490e3c6f897682c80700869a8def88f87bec9692e1f18ac6e1ea4cfb4a03e8695866cf75aed042210a20abebe1e0e778af3c9aaff9369775e0727a47af58b23cac11206f5b4ef2f74c0ceda9c3b0375b99e68748272e7abd7b6a5cd71faef0d74738c90d7215b1eec81c4b36572b303d1690b10f8077670d74e3189c3c6191592e6efb9521a3e623653b0a2b63e7308a35852a3d51"
+        },
+        {
+          "tcId": 6,
+          "comment": "another data blob sealed with the same, replayed randomness",
+          "flags": [
+            "HedgedNonce"
+          ],
+          "inputs": {
+            "key": "6c5101b2fb55b7a32fb3fedb598b87e7cfa48edb0a12c130f192452804ebbe30",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000011d53bc3a833dc796c21000677a1b0d12013d1f8b44c4ba2d2287136dc381717d64db7da017b0c43b21004f7532cadf5e317d5f1b6368f9f17e918db2d317045c97252ca7ad6823773d575960e9b6ce6495",
+            "plaintext": "b800de0ef1542a71b603861aaf4ba36517e0dde66346b964678e65dbb44e4969b728bad18d76f1b4e88318b9417470f1006b8b828f7555c3d3d2ac6528705a28691c0bf68503f0b37731283ade916be1f8f597b16c7a621575e3722509b6051cc14c6581",
+            "rand": "45bb932779e8f59905ea41405652ddf7de736ad5e388990164b460fc2718083f"
+          },
+          "expect": "Ok",
+          "nonce": "8ca53ab70a93e5edab5093b81ad4615e45ae1f25fb1a653b",
+          "sealed": "8ca53ab70a93e5edab5093b81ad4615e45ae1f25fb1a653bd58d69720731fde10ef27f968cf3b8e9494462972b2e94b8cece89aeedda493144cb3601f5718341fb6db62597a694011f86c1b412ef29fa19dde06dde7da4b60a52a16ac0a6e9567e508b16b3c5ad59e079c91e985df93e4c9398432417e26165720a5637181e9d539726e4ce582ac6c47a815c6886b75c1397fcf43ec5b4d3f6db8d93f2f8e821104cebb2c70c0b603ac40a0f"
+        }
+      ]
+    },
+    {
+      "type": "SyntheticNonce",
+      "tests": [
+        {
+          "tcId": 7,
+          "comment": "a 96-byte shard header",
+          "flags": [
+            "SyntheticNonce"
+          ],
+          "inputs": {
+            "key": "4da22c440560162c5b03a0514a1d485fde577dd29b9175751466d37da9f19f12",
+            "nonceKey": "b1a42ab39877d8d43fddc919aa5d8e74ff5816e925d4a32fa787e026759db8aa",
+            "aad": "1c63727970746869782f76302f6161642f73686172642d686561646572b91526e72b3f218068ee0e04659eb93a6a93108318024c2a07cb555a1261f3d880efa0bcf96acd1f70481ef3e176563a00",
+            "plaintext": "bf6dfe56e07032f0380762587641fefa508211f022dcfe55640b38bfd1fcc501231895b742b0a288f1768a0878afe53f0d50250611978cd41e1d6687dd73d972bcfcf3c52f50155eb9776c432056fa7975c4083e4043791f633b3d163ad66d51"
+          },
+          "expect": "Ok",
+          "nonce": "b51b477506045bc2d0d42a9185ff5029f92a78db16062fe9",
+          "sealed": "b51b477506045bc2d0d42a9185ff5029f92a78db16062fe97314c4bb6663dd50c85f086bc249490dcb00eced3da847ca60005eebd9e12a2447aa41606bb811054d318af7af578172ffc4c4b89bc67af92fdc6aa97c1b35b6067c0ec956b3fd5a6c5b646155d7d84d4c6b131e07d3f54ec52954f6bb4ece5e7f7281d5b589843fd3c02f93b221858568113edd49f5f44dc522c909c62a566327d353f6a5246aae394766e6d5632a9c"
+        },
+        {
+          "tcId": 8,
+          "comment": "the same header with its last bit flipped",
+          "flags": [
+            "SyntheticNonce"
+          ],
+          "inputs": {
+            "key": "4da22c440560162c5b03a0514a1d485fde577dd29b9175751466d37da9f19f12",
+            "nonceKey": "b1a42ab39877d8d43fddc919aa5d8e74ff5816e925d4a32fa787e026759db8aa",
+            "aad": "1c63727970746869782f76302f6161642f73686172642d686561646572b91526e72b3f218068ee0e04659eb93a6a93108318024c2a07cb555a1261f3d880efa0bcf96acd1f70481ef3e176563a00",
+            "plaintext": "bf6dfe56e07032f0380762587641fefa508211f022dcfe55640b38bfd1fcc501231895b742b0a288f1768a0878afe53f0d50250611978cd41e1d6687dd73d972bcfcf3c52f50155eb9776c432056fa7975c4083e4043791f633b3d163ad66d50"
+          },
+          "expect": "Ok",
+          "nonce": "1160bc389da78575f5539c3190b5f82b0abf016559475d80",
+          "sealed": "1160bc389da78575f5539c3190b5f82b0abf016559475d80eb4e38ec0c45b5c34f93623589972b4c53d3f94741e165f3afa115194943fcb9f89723e425c4d03cb62aa379ef121b8972712b23c61f3e86969d15215c74b6e87954b4cc76531fad8d3930a2af1cdd3ca7893202edcb54082a8fe7e4fc51a106b4ab7faf4499d22df08b99b753c3db9492e611976d81bae8a6b60a40d93819af0c42aa030aff532a91ea189c709fc87b"
+        }
+      ]
+    },
+    {
+      "type": "Open",
+      "tests": [
+        {
+          "tcId": 9,
+          "comment": "the seal opens",
+          "flags": [
+            "Opens"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Ok",
+          "plaintext": "51096f03c3aa2251e3ed9608117659254d80a37fb050c06f54678bacb76e5ff27bf1f1f6af421e94"
+        },
+        {
+          "tcId": 10,
+          "comment": "an empty plaintext is exactly the 72-byte overhead",
+          "flags": [
+            "Opens"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0de0139611c1a2a9c946054bf4261a04e9"
+          },
+          "expect": "Ok",
+          "plaintext": ""
+        },
+        {
+          "tcId": 11,
+          "comment": "a seal with a hedged nonce opens the same way",
+          "flags": [
+            "Opens"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "ad832a93349f79b5a8c52ba150ac6c383a3ac8bea4aded46ba676f88e4ab4ca6e82d36dc5e425b325ea5db9f81c18f485d6bf82f65198ce1410d4bc88655b755e69efedaf1f1b44ca3085d4aaccc9d756c68ddcd5b6c766c78b7ce5b0e638de92bd1f2f458ce6a75489af7864cf46aa9"
+          },
+          "expect": "Ok",
+          "plaintext": "51096f03c3aa2251e3ed9608117659254d80a37fb050c06f54678bacb76e5ff27bf1f1f6af421e94"
+        },
+        {
+          "tcId": 12,
+          "comment": "another key",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "df28108e60c87c8451f25704afa5e8bc037b5b547a435ba5c78dac789ba0c9ac",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 13,
+          "comment": "the last AAD field changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da9ee",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 14,
+          "comment": "the AAD label length byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "9963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 15,
+          "comment": "the AAD suite byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000814c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 16,
+          "comment": "the same AAD fields under another label",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d6d657461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 17,
+          "comment": "the first nonce byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "f5683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 18,
+          "comment": "the last nonce byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08bade33766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 19,
+          "comment": "the same commitment, ciphertext and tag under another nonce",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "44b35b24b6cd0b8e98f89d0251eac3b90a3872d198ada215766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 20,
+          "comment": "the first commitment byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3f66342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 21,
+          "comment": "the last commitment byte changed",
+          "flags": [
+            "CommitmentCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c8d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "Commitment"
+        },
+        {
+          "tcId": 22,
+          "comment": "the first ciphertext byte changed",
+          "flags": [
+            "TagCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0db8b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "AeadTag"
+        },
+        {
+          "tcId": 23,
+          "comment": "the first tag byte changed",
+          "flags": [
+            "TagCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb742520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "AeadTag"
+        },
+        {
+          "tcId": 24,
+          "comment": "the last tag byte changed",
+          "flags": [
+            "TagCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edcbe"
+          },
+          "expect": "AeadTag"
+        },
+        {
+          "tcId": 25,
+          "comment": "one ciphertext byte removed",
+          "flags": [
+            "TagCheck"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0db8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "AeadTag"
+        },
+        {
+          "tcId": 26,
+          "comment": "an all-zero nonce",
+          "flags": [
+            "ZeroNonce"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "000000000000000000000000000000000000000000000000766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0d38b8b05dcf88b2b83e2e18d5ed48cb033ab05fa81ebfcd0e022e1f8524726fbdab441d1260aa0cb7c2520357dc10656c76afb6e4852edc3e"
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 27,
+          "comment": "71 bytes, one short of the overhead",
+          "flags": [
+            "Short"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": "75683420d0d95fc55a3bfd625edf0c5b873e23af08badeb3766342acb0b4d2da4f4b621aa5730551d5a9f9b1a9a7110306399688f49e6c0de0139611c1a2a9c946054bf4261a04"
+          },
+          "expect": "Truncated"
+        },
+        {
+          "tcId": 28,
+          "comment": "no bytes",
+          "flags": [
+            "Short"
+          ],
+          "inputs": {
+            "key": "e28ee06fd3e78270e716e16dba79369f5d648ca0ee55af6cbac5f6520561b7af",
+            "aad": "1963727970746869782f76302f6161642f626c6f622d64617461000000014c53df9e5f8f39b7b7474f5cc85c7515016001b56b018de0f146579a61b062412f9be1dba01796af6d0392015c36e1d3e0b41cd906969526ad34eedcf63917bb016f5d823480d020528fa1737b4d3da96e",
+            "sealed": ""
+          },
+          "expect": "Truncated"
+        }
+      ]
+    }
+  ],
+  "numberOfTests": 28
+}

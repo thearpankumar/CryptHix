@@ -1,0 +1,14 @@
+{
+  "source": "draft-irtf-cfrg-xchacha-03",
+  "algorithm": "HChaCha20",
+  "numberOfTests": 1,
+  "tests": [
+    {
+      "tcId": 1,
+      "section": "2.2.1",
+      "key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "nonce": "000000090000004a0000000031415927",
+      "subkey": "82413b4227b27bfed30e42508a877d73a0f9e4d58a74a853c12ec41326d3ecdc"
+    }
+  ]
+}

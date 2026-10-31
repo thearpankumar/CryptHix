@@ -97,6 +97,7 @@ pub(crate) fn set() -> VectorSet {
         file: "tv-17-versions.json",
         set: "TV-17",
         structure: "versions-criticality-features",
+        seed: None,
         extra: vec![("knownFeatures", "Features::EMPTY (a Phase 1 reader knows no feature bits)")],
         notes: vec![
             ("NonCriticalKey", &["FS-20", "M-33"], "An unknown non-negative key is ignored for meaning and kept"),

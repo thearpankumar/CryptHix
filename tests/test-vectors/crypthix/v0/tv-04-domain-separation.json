@@ -1,0 +1,1431 @@
+{
+  "set": "TV-04",
+  "structure": "domain-separation",
+  "formatVersion": 0,
+  "suiteId": 1,
+  "generator": "crypthix-vector-gen, seeded test-rng stream, independent section 7 code",
+  "seed": "71891cf02221cb02e2c3212d7ada8bc32e4bb37ebced15cd09ca525ac6ed524a",
+  "notes": {
+    "LabelRegistry": {
+      "cites": [
+        "FS-12",
+        "FS-25",
+        "M-37"
+      ],
+      "description": "Every label of the section 7.1 registry and its `u8 len ‖ label` prefix."
+    },
+    "DomainHash": {
+      "cites": [
+        "FS-12",
+        "FS-26",
+        "M-37",
+        "T-83"
+      ],
+      "description": "`H(label, x) = BLAKE3(u8 len ‖ label ‖ x)`."
+    },
+    "DerivedKey": {
+      "cites": [
+        "FS-26",
+        "FS-38",
+        "M-37"
+      ],
+      "description": "Every derived key of FS-38: `KDF(ikm, salt, label, ctx)` with its key type."
+    },
+    "Mac": {
+      "cites": [
+        "FS-26",
+        "M-37"
+      ],
+      "description": "`MAC(k, x)`: keyed BLAKE3-256."
+    },
+    "GearTable": {
+      "cites": [
+        "FS-52",
+        "M-39"
+      ],
+      "description": "The first 2,048 bytes of the keyed BLAKE3 XOF over the empty input."
+    },
+    "ZeroValue": {
+      "cites": [
+        "FS-03",
+        "FS-04",
+        "T-37"
+      ],
+      "description": "All-zero keys, IDs and hashes, and zero counters, are invalid."
+    }
+  },
+  "testGroups": [
+    {
+      "type": "LabelPrefix",
+      "tests": [
+        {
+          "tcId": 1,
+          "comment": "crypthix/v0/kdf/root",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/root"
+          },
+          "expect": "Ok",
+          "prefix": "1463727970746869782f76302f6b64662f726f6f74"
+        },
+        {
+          "tcId": 2,
+          "comment": "crypthix/v0/kdf/root-commit",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/root-commit"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6b64662f726f6f742d636f6d6d6974"
+        },
+        {
+          "tcId": 3,
+          "comment": "crypthix/v0/kdf/keyring-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/keyring-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6b64662f6b657972696e672d77726170"
+        },
+        {
+          "tcId": 4,
+          "comment": "crypthix/v0/kdf/vault-sign-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/vault-sign-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1f63727970746869782f76302f6b64662f7661756c742d7369676e2d77726170"
+        },
+        {
+          "tcId": 5,
+          "comment": "crypthix/v0/kdf/device-key-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/device-key-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1f63727970746869782f76302f6b64662f6465766963652d6b65792d77726170"
+        },
+        {
+          "tcId": 6,
+          "comment": "crypthix/v0/kdf/device-state",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/device-state"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6b64662f6465766963652d7374617465"
+        },
+        {
+          "tcId": 7,
+          "comment": "crypthix/v0/kdf/config-seal",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/config-seal"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6b64662f636f6e6669672d7365616c"
+        },
+        {
+          "tcId": 8,
+          "comment": "crypthix/v0/kdf/canary-seed",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/canary-seed"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6b64662f63616e6172792d73656564"
+        },
+        {
+          "tcId": 9,
+          "comment": "crypthix/v0/kdf/gear",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/gear"
+          },
+          "expect": "Ok",
+          "prefix": "1463727970746869782f76302f6b64662f67656172"
+        },
+        {
+          "tcId": 10,
+          "comment": "crypthix/v0/kdf/log-key-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/log-key-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6b64662f6c6f672d6b65792d77726170"
+        },
+        {
+          "tcId": 11,
+          "comment": "crypthix/v0/kdf/queue-mac",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/queue-mac"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6b64662f71756575652d6d6163"
+        },
+        {
+          "tcId": 12,
+          "comment": "crypthix/v0/kdf/dek-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/dek-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f6b64662f64656b2d77726170"
+        },
+        {
+          "tcId": 13,
+          "comment": "crypthix/v0/kdf/pack-key-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/pack-key-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1d63727970746869782f76302f6b64662f7061636b2d6b65792d77726170"
+        },
+        {
+          "tcId": 14,
+          "comment": "crypthix/v0/kdf/index-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/index-key"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6b64662f696e6465782d6b6579"
+        },
+        {
+          "tcId": 15,
+          "comment": "crypthix/v0/kdf/key-table-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/key-table-key"
+          },
+          "expect": "Ok",
+          "prefix": "1d63727970746869782f76302f6b64662f6b65792d7461626c652d6b6579"
+        },
+        {
+          "tcId": 16,
+          "comment": "crypthix/v0/kdf/location-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/location-key"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6b64662f6c6f636174696f6e2d6b6579"
+        },
+        {
+          "tcId": 17,
+          "comment": "crypthix/v0/kdf/pack-table-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/pack-table-key"
+          },
+          "expect": "Ok",
+          "prefix": "1e63727970746869782f76302f6b64662f7061636b2d7461626c652d6b6579"
+        },
+        {
+          "tcId": 18,
+          "comment": "crypthix/v0/kdf/root-seal",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/root-seal"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6b64662f726f6f742d7365616c"
+        },
+        {
+          "tcId": 19,
+          "comment": "crypthix/v0/kdf/manifest-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/manifest-key"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6b64662f6d616e69666573742d6b6579"
+        },
+        {
+          "tcId": 20,
+          "comment": "crypthix/v0/kdf/chunk-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/chunk-key"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6b64662f6368756e6b2d6b6579"
+        },
+        {
+          "tcId": 21,
+          "comment": "crypthix/v0/kdf/blob-id-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/blob-id-key"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6b64662f626c6f622d69642d6b6579"
+        },
+        {
+          "tcId": 22,
+          "comment": "crypthix/v0/kdf/plaintext-mac-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/plaintext-mac-key"
+          },
+          "expect": "Ok",
+          "prefix": "2163727970746869782f76302f6b64662f706c61696e746578742d6d61632d6b6579"
+        },
+        {
+          "tcId": 23,
+          "comment": "crypthix/v0/kdf/pack-header-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/pack-header-key"
+          },
+          "expect": "Ok",
+          "prefix": "1f63727970746869782f76302f6b64662f7061636b2d6865616465722d6b6579"
+        },
+        {
+          "tcId": 24,
+          "comment": "crypthix/v0/kdf/shard-header-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/shard-header-key"
+          },
+          "expect": "Ok",
+          "prefix": "2063727970746869782f76302f6b64662f73686172642d6865616465722d6b6579"
+        },
+        {
+          "tcId": 25,
+          "comment": "crypthix/v0/kdf/shard-nonce",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/shard-nonce"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6b64662f73686172642d6e6f6e6365"
+        },
+        {
+          "tcId": 26,
+          "comment": "crypthix/v0/kdf/cx-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/cx-key"
+          },
+          "expect": "Ok",
+          "prefix": "1663727970746869782f76302f6b64662f63782d6b6579"
+        },
+        {
+          "tcId": 27,
+          "comment": "crypthix/v0/kdf/cx-commit",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/cx-commit"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6b64662f63782d636f6d6d6974"
+        },
+        {
+          "tcId": 28,
+          "comment": "crypthix/v0/kdf/cx-nonce",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/kdf/cx-nonce"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f6b64662f63782d6e6f6e6365"
+        },
+        {
+          "tcId": 29,
+          "comment": "crypthix/v0/aad/share-slot",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/share-slot"
+          },
+          "expect": "Ok",
+          "prefix": "1a63727970746869782f76302f6161642f73686172652d736c6f74"
+        },
+        {
+          "tcId": 30,
+          "comment": "crypthix/v0/aad/keyring",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/keyring"
+          },
+          "expect": "Ok",
+          "prefix": "1763727970746869782f76302f6161642f6b657972696e67"
+        },
+        {
+          "tcId": 31,
+          "comment": "crypthix/v0/aad/epoch",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/epoch"
+          },
+          "expect": "Ok",
+          "prefix": "1563727970746869782f76302f6161642f65706f6368"
+        },
+        {
+          "tcId": 32,
+          "comment": "crypthix/v0/aad/vault-sign-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/vault-sign-key"
+          },
+          "expect": "Ok",
+          "prefix": "1e63727970746869782f76302f6161642f7661756c742d7369676e2d6b6579"
+        },
+        {
+          "tcId": 33,
+          "comment": "crypthix/v0/aad/device-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/device-key"
+          },
+          "expect": "Ok",
+          "prefix": "1a63727970746869782f76302f6161642f6465766963652d6b6579"
+        },
+        {
+          "tcId": 34,
+          "comment": "crypthix/v0/aad/dek-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/dek-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f6161642f64656b2d77726170"
+        },
+        {
+          "tcId": 35,
+          "comment": "crypthix/v0/aad/pack-key-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/pack-key-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "1d63727970746869782f76302f6161642f7061636b2d6b65792d77726170"
+        },
+        {
+          "tcId": 36,
+          "comment": "crypthix/v0/aad/blob-data",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/blob-data"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6161642f626c6f622d64617461"
+        },
+        {
+          "tcId": 37,
+          "comment": "crypthix/v0/aad/blob-meta",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/blob-meta"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6161642f626c6f622d6d657461"
+        },
+        {
+          "tcId": 38,
+          "comment": "crypthix/v0/aad/manifest",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/manifest"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f6161642f6d616e6966657374"
+        },
+        {
+          "tcId": 39,
+          "comment": "crypthix/v0/aad/pack-header",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/pack-header"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6161642f7061636b2d686561646572"
+        },
+        {
+          "tcId": 40,
+          "comment": "crypthix/v0/aad/shard-header",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/shard-header"
+          },
+          "expect": "Ok",
+          "prefix": "1c63727970746869782f76302f6161642f73686172642d686561646572"
+        },
+        {
+          "tcId": 41,
+          "comment": "crypthix/v0/aad/config-seal",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/config-seal"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6161642f636f6e6669672d7365616c"
+        },
+        {
+          "tcId": 42,
+          "comment": "crypthix/v0/aad/root-seal",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/root-seal"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f6161642f726f6f742d7365616c"
+        },
+        {
+          "tcId": 43,
+          "comment": "crypthix/v0/aad/log-details",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/log-details"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f6161642f6c6f672d64657461696c73"
+        },
+        {
+          "tcId": 44,
+          "comment": "crypthix/v0/aad/log-key",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/aad/log-key"
+          },
+          "expect": "Ok",
+          "prefix": "1763727970746869782f76302f6161642f6c6f672d6b6579"
+        },
+        {
+          "tcId": 45,
+          "comment": "crypthix/v0/sig/config",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/config"
+          },
+          "expect": "Ok",
+          "prefix": "1663727970746869782f76302f7369672f636f6e666967"
+        },
+        {
+          "tcId": 46,
+          "comment": "crypthix/v0/sig/device-cert",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/device-cert"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f7369672f6465766963652d63657274"
+        },
+        {
+          "tcId": 47,
+          "comment": "crypthix/v0/sig/device-pop",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/device-pop"
+          },
+          "expect": "Ok",
+          "prefix": "1a63727970746869782f76302f7369672f6465766963652d706f70"
+        },
+        {
+          "tcId": 48,
+          "comment": "crypthix/v0/sig/device-set",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/device-set"
+          },
+          "expect": "Ok",
+          "prefix": "1a63727970746869782f76302f7369672f6465766963652d736574"
+        },
+        {
+          "tcId": 49,
+          "comment": "crypthix/v0/sig/root",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/root"
+          },
+          "expect": "Ok",
+          "prefix": "1463727970746869782f76302f7369672f726f6f74"
+        },
+        {
+          "tcId": 50,
+          "comment": "crypthix/v0/sig/manifest",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/manifest"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f7369672f6d616e6966657374"
+        },
+        {
+          "tcId": 51,
+          "comment": "crypthix/v0/sig/log-entry",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/log-entry"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f7369672f6c6f672d656e747279"
+        },
+        {
+          "tcId": 52,
+          "comment": "crypthix/v0/sig/snapshot",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/snapshot"
+          },
+          "expect": "Ok",
+          "prefix": "1863727970746869782f76302f7369672f736e617073686f74"
+        },
+        {
+          "tcId": 53,
+          "comment": "crypthix/v0/sig/epoch-device-wrap",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/sig/epoch-device-wrap"
+          },
+          "expect": "Ok",
+          "prefix": "2163727970746869782f76302f7369672f65706f63682d6465766963652d77726170"
+        },
+        {
+          "tcId": 54,
+          "comment": "crypthix/v0/hash/vault-id",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/vault-id"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f686173682f7661756c742d6964"
+        },
+        {
+          "tcId": 55,
+          "comment": "crypthix/v0/hash/key-id",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/key-id"
+          },
+          "expect": "Ok",
+          "prefix": "1763727970746869782f76302f686173682f6b65792d6964"
+        },
+        {
+          "tcId": 56,
+          "comment": "crypthix/v0/hash/shard-id",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/shard-id"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f686173682f73686172642d6964"
+        },
+        {
+          "tcId": 57,
+          "comment": "crypthix/v0/hash/blob",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/blob"
+          },
+          "expect": "Ok",
+          "prefix": "1563727970746869782f76302f686173682f626c6f62"
+        },
+        {
+          "tcId": 58,
+          "comment": "crypthix/v0/hash/pack",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/pack"
+          },
+          "expect": "Ok",
+          "prefix": "1563727970746869782f76302f686173682f7061636b"
+        },
+        {
+          "tcId": 59,
+          "comment": "crypthix/v0/hash/file",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/file"
+          },
+          "expect": "Ok",
+          "prefix": "1563727970746869782f76302f686173682f66696c65"
+        },
+        {
+          "tcId": 60,
+          "comment": "crypthix/v0/hash/aad-part",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/aad-part"
+          },
+          "expect": "Ok",
+          "prefix": "1963727970746869782f76302f686173682f6161642d70617274"
+        },
+        {
+          "tcId": 61,
+          "comment": "crypthix/v0/hash/cx-aad",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/cx-aad"
+          },
+          "expect": "Ok",
+          "prefix": "1763727970746869782f76302f686173682f63782d616164"
+        },
+        {
+          "tcId": 62,
+          "comment": "crypthix/v0/hash/merkle-manifest",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/merkle-manifest"
+          },
+          "expect": "Ok",
+          "prefix": "2063727970746869782f76302f686173682f6d65726b6c652d6d616e6966657374"
+        },
+        {
+          "tcId": 63,
+          "comment": "crypthix/v0/hash/root-chain",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/root-chain"
+          },
+          "expect": "Ok",
+          "prefix": "1b63727970746869782f76302f686173682f726f6f742d636861696e"
+        },
+        {
+          "tcId": 64,
+          "comment": "crypthix/v0/hash/log-chain",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/log-chain"
+          },
+          "expect": "Ok",
+          "prefix": "1a63727970746869782f76302f686173682f6c6f672d636861696e"
+        },
+        {
+          "tcId": 65,
+          "comment": "crypthix/v0/hash/recovery-check",
+          "flags": [
+            "LabelRegistry"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/recovery-check"
+          },
+          "expect": "Ok",
+          "prefix": "1f63727970746869782f76302f686173682f7265636f766572792d636865636b"
+        }
+      ]
+    },
+    {
+      "type": "Hash",
+      "tests": [
+        {
+          "tcId": 66,
+          "comment": "H over the empty input",
+          "flags": [
+            "DomainHash"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/file",
+            "data": ""
+          },
+          "expect": "Ok",
+          "hash": "ea3acd22436a3b630114929f8dffbe4eb3972b404018efbca8040b580bbc1c2f"
+        },
+        {
+          "tcId": 67,
+          "comment": "H over three bytes",
+          "flags": [
+            "DomainHash"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/key-id",
+            "data": "616263"
+          },
+          "expect": "Ok",
+          "hash": "2eb1b39afdfaad31a4ca585c01157706e75b012b69138c7dac99ee32991e3c0c"
+        },
+        {
+          "tcId": 68,
+          "comment": "H over 1,000 bytes",
+          "flags": [
+            "DomainHash"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/aad-part",
+            "data": "329e0b898f5b1f4454c56b311c18a8f305571dd486ceb9d3e031fdda5a3bcc894ccd6caa488af00cf35adadb24984f0d4eb9d53b40462d273707f01c0c96e768156f337366ef302714cfa91125e9172bf8a317a42e878bcf3b38712c9144fbf2164f0d355ec49c357504f623e3c695223ef22b4e837b2e78be47b3f52cc35945f9123356c7cfcab4f31fe23b3acbf40689ed95ffc24bab63c44205ba9c09a7e459154deaf1a8b6bfc68423d309098221e7b8f3daf014de4d95ffd4a6b1a36dae4ac729cebc60026c0cc2c9ec25c1157875a06a1433b6e08c3eb27aeef734cd6ebf754f7f4438e760b7c265b7c77a7e2c9a3a8863ceb7ed243bb6fbb2757589f8f37146e1e004f1eb7456c6915db8fff727285ef8bf2116f56a109a4c3043ea0a67032a7de57356460e3584ec6c32fa3e57d8720c9c285258224f0e6c126c182129027ae559c690467662fc30f84aa3e8a4dd16535a8704a5871fcdfff709bbb2d5230174caf39caf758bd3360c9d30f89e1e49f4d04ee373a397e0dc8b248698e6767bd1fdf9a729d6341ab92fb35fa58e0bbb1b9ab0e94336463fd0f1c68759131e8918803db31491b49376c187d666387cdad1983263f5db19e07024c5257f87d4d836e80da0bd1b945e049452c5cf18c265e25844b6d71d06e742131a674c17a5e83884d38a2342dae2e1e68e7a08ae6174ddebbaa22abeba3f1af27efe7334012a1d0767c8bbca7b84ecde54d90420574f86dcf0780e6726d13e0f76e1d2a12e8a94fd4ef0388d6e118f03c1f6df615c446859e80a10aea823b99ca40c17dfd5f039ccc955af75797ff58d1aabdfee4ce84715c7cce0fc6febc5e40ac482d996dd7878d1d07319bc4ca3f4d1a2c4c911ea323956c9d79333fdede36a47cdcb47d0c5d2ddca0d5deecaf7a043ccf0532a659309ab0ed3812f92f83d301e3d069adca68dd72a1ea909d9a22f2ae8d5bac6e424f7836a1628e7f755604f058cee9c40cb0fc80dd30ed77c6df8f45aac38ae82014e12eb5ff511fec348e131743fd218118cce5cedcaa382339bd70c90a7825931e1a52fdb07fbf93fdb2e2d73ab1aaa2559ea16c2ef9be71378d8605c34d0fd57125b4dbe979383f00f7fc81c99dfca96c20080be0ac101ca66bc3725cf24fe9ef62e94d4c047c211c610c593c55c5c3eaff300ac5892062f06feb8b8210d82a37e68996f00c784279205b0f31e6c0240a7dc95c21d4041db92690955b7e036dd9e8d4d88e44867b8d358df242600d28c883f9bec16fac1ca88c2ba9f056fd1952fbe66fc02489cb3e936148d26238aa6a20e191e1353ceffa1c53979d54167bbfffc094ba4bdb46c754181ffee7a6cbf9f59e5b417256901ea832e45b9427ac3dd6d9df0102a0d250dd01db114e4b18212c6f367"
+          },
+          "expect": "Ok",
+          "hash": "2244106d48ecf972b14d2a5b54eb91a130c5d35381181aef68fd3d4deba15f49"
+        },
+        {
+          "tcId": 69,
+          "comment": "the CX-AEAD AAD digest",
+          "flags": [
+            "DomainHash"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/cx-aad",
+            "data": "329e0b898f5b1f4454c56b311c18a8f305571dd486ceb9d3e031fdda5a3bcc894ccd6caa488af00cf35adadb24984f0d4eb9d53b40462d273707f01c0c96e768156f337366ef302714cfa91125e9172bf8a317a42e878bcf3b38712c9144fbf2164f0d355ec49c357504f623e3c695223ef22b4e837b2e78be47b3f52cc35945f9123356c7cfcab4f31fe23b3acbf40689ed95ffc24bab63c44205ba9c09a7e459154deaf1a8b6bfc68423d309098221e7b8f3daf014de4d95ffd4a6b1a36dae4ac729cebc60026c0cc2c9ec25c1157875a06a1433b6e08c3eb27aeef734cd6ebf754f7f4438e760b7c265b7c77a7e2c9a3a8863ceb7ed243bb6fbb2757589f8f37146e1e004f1eb7456c6915db8fff727285ef8bf2116f56a109a4c3043ea0a67032a7de57356460e3584ec6c32fa3e57d8720c9c285258224f0e6c126c182129027ae559c690467662fc30f84aa3e8a4dd16535a8704a5871fcdfff709bbb2d5230174caf39caf758bd3360c9d30f89e1e49f4d04ee373a397e0dc8b248698e6767bd1fdf9a729d6341ab92fb35fa58e0bbb1b9ab0e94336463fd0f1c68759131e8918803db31491b49376c187d666387cdad1983263f5db19e07024c5257f87d4d836e80da0bd1b945e049452c5cf18c265e25844b6d71d06e742131a674c17a5e83884d38a2342dae2e1e68e7a08ae6174ddebbaa22abeba3f1af27efe7334012a1d0767c8bbca7b84ecde54d90420574f86dcf0780e6726d13e0f76e1d2a12e8a94fd4ef0388d6e118f03c1f6df615c446859e80a10aea823b99ca40c17dfd5f039ccc955af75797ff58d1aabdfee4ce84715c7cce0fc6febc5e40ac482d996dd7878d1d07319bc4ca3f4d1a2c4c911ea323956c9d79333fdede36a47cdcb47d0c5d2ddca0d5deecaf7a043ccf0532a659309ab0ed3812f92f83d301e3d069adca68dd72a1ea909d9a22f2ae8d5bac6e424f7836a1628e7f755604f058cee9c40cb0fc80dd30ed77c6df8f45aac38ae82014e12eb5ff511fec348e131743fd218118cce5cedcaa382339bd70c90a7825931e1a52fdb07fbf93fdb2e2d73ab1aaa2559ea16c2ef9be71378d8605c34d0fd57125b4dbe979383f00f7fc81c99dfca96c20080be0ac101ca66bc3725cf24fe9ef62e94d4c047c211c610c593c55c5c3eaff300ac5892062f06feb8b8210d82a37e68996f00c784279205b0f31e6c0240a7dc95c21d4041db92690955b7e036dd9e8d4d88e44867b8d358df242600d28c883f9bec16fac1ca88c2ba9f056fd1952fbe66fc02489cb3e936148d26238aa6a20e191e1353ceffa1c53979d54167bbfffc094ba4bdb46c754181ffee7a6cbf9f59e5b417256901ea832e45b9427ac3dd6d9df0102a0d250dd01db114e4b18212c6f367"
+          },
+          "expect": "Ok",
+          "hash": "5b52bbee4ee3f6a068ffa721788b24c7abae1e451e1c50597bf34fed90d3c2f1"
+        },
+        {
+          "tcId": 70,
+          "comment": "the empty Merkle tree",
+          "flags": [
+            "DomainHash"
+          ],
+          "inputs": {
+            "label": "crypthix/v0/hash/merkle-manifest",
+            "data": ""
+          },
+          "expect": "Ok",
+          "hash": "e012ab69cccd53e70cb1f8e82583ae1c8a8a20f752dc91b48e6b8965b4d4af48"
+        }
+      ]
+    },
+    {
+      "type": "DerivedKey",
+      "tests": [
+        {
+          "tcId": 71,
+          "comment": "RK from the root secret",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "f0395d7a203608e951d1cfb54ea715203d4aa1a7bcdf02b3c5d612f420ef85be",
+            "label": "crypthix/v0/kdf/root",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "KdfKey"
+          },
+          "expect": "Ok",
+          "key": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277"
+        },
+        {
+          "tcId": 72,
+          "comment": "root_commit",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/root-commit",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "RootCommit"
+          },
+          "expect": "Ok",
+          "key": "f835df7927051e3d55a0c09020d1f6b0d98b4ef4a178a83a84e7d27dd64ff26b"
+        },
+        {
+          "tcId": 73,
+          "comment": "K_keyring_g",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/keyring-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000002",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "f53049fb37da2a78f35e68ccc84d3b6534a5897dc04aa4fffedb670755fdd6f0"
+        },
+        {
+          "tcId": 74,
+          "comment": "K_vsign",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/vault-sign-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "bf9057bb0e871e417b249b83fd565eebb8bc30adbf1169e1fc9039e74b9d6aba"
+        },
+        {
+          "tcId": 75,
+          "comment": "K_devwrap",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/device-key-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07446897a8911f6983fef1881e488336a6ac",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "ecf8b8cc283af458614fb5e5d7a5fac3d899d492e40e9f9469711b8f5d7f0faf"
+        },
+        {
+          "tcId": 76,
+          "comment": "K_state",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/device-state",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07446897a8911f6983fef1881e488336a6ac",
+            "keyType": "MacKey"
+          },
+          "expect": "Ok",
+          "key": "b718710b0fef7ae1454c94cb60680154de153f2682031bc6a16997d5122bafc1"
+        },
+        {
+          "tcId": 77,
+          "comment": "K_queue",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/queue-mac",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07446897a8911f6983fef1881e488336a6ac",
+            "keyType": "MacKey"
+          },
+          "expect": "Ok",
+          "key": "a8d9fb6919e60c3b0128912a6ca0b03b599dfbe98b372c04f173b083b427ead5"
+        },
+        {
+          "tcId": 78,
+          "comment": "K_cfg",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/config-seal",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "8ca56ca80a90557a74e3a82794fac58d06b071b820d014c90f94d42ca657105c"
+        },
+        {
+          "tcId": 79,
+          "comment": "K_canary",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/canary-seed",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "KdfKey"
+          },
+          "expect": "Ok",
+          "key": "ff1ba103de3f819d34988d57ae2556cf5dba600c701f1fd6489549fe48f5ceca"
+        },
+        {
+          "tcId": 80,
+          "comment": "K_logkey",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "78cdfd0bb332906317c943ac47c77e811fcff5dba1079184d2da032d7dc3a277",
+            "label": "crypthix/v0/kdf/log-key-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "bcfdea4bfad27dbdd21e59cbfa0f03aca89a814db55f36f7caac0a71f584053a"
+        },
+        {
+          "tcId": 81,
+          "comment": "K_gear from the chunker seed",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "58b8c3ed6ca469405daeb492e4fbf09b417f3d336e2808532a8bf993634f872a",
+            "label": "crypthix/v0/kdf/gear",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae0744",
+            "keyType": "XofKey"
+          },
+          "expect": "Ok",
+          "key": "8fc1dbf40e8e7995a4fce3be51c59de58972b8e961c74ebe6412805037178fc6"
+        },
+        {
+          "tcId": 82,
+          "comment": "K_dekwrap_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/dek-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "ed68da90132c21d571a332c3ee612ff146da2019f08ea95293d998a4d7a41885"
+        },
+        {
+          "tcId": 83,
+          "comment": "K_pkwrap_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/pack-key-wrap",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "457b365584fb5f707ac81b9d1cb339c8c95b4bf69e04e86b925d40f4f729a8ee"
+        },
+        {
+          "tcId": 84,
+          "comment": "K_idx_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/index-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "70a2943288f0250e0ad3c0b3bac83f85b477f671f6a65e5db881edd0a1cfa706"
+        },
+        {
+          "tcId": 85,
+          "comment": "K_kt_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/key-table-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "b6d62282bf626e818320238faba57d62f5c81234133fccf6ace2f2a8aae90de8"
+        },
+        {
+          "tcId": 86,
+          "comment": "K_loc_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/location-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "15172cbbb980b711865dfdd6aa0153d57ad4d7a46020a17f83605b2e52faf360"
+        },
+        {
+          "tcId": 87,
+          "comment": "K_pt_e",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "1ab2f8a62a94c1d28d1bd6a0b6d25870e9c851b3ab7575e08ac5f479591c494e",
+            "label": "crypthix/v0/kdf/pack-table-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074400000003",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "fa4c6888e7bdb231695b496f2c37b475265817b4c2a97f06102a41a5d9c31e43"
+        },
+        {
+          "tcId": 88,
+          "comment": "K_root_s",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "093c3b0dc49a3a9432a4bbfdb7c4b36079a706d1a1b8da1f47e26b2b215e93db",
+            "label": "crypthix/v0/kdf/root-seal",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07440000000000000007",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "08db19ecb0b0ba895e93c020053363c2c4c1431daa30fab094fe01fab7b27e05"
+        },
+        {
+          "tcId": 89,
+          "comment": "K_man, salted with dek_salt",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "8ced5bf4da8b6066edf0573d80e0de495275d23e7ec3e617551e638adbbad83d",
+            "salt": "d56c3d4a619950e89f147cdeb25a56b203f9909c0f9d66c73b2bd5204c6b9864",
+            "label": "crypthix/v0/kdf/manifest-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07447ac78293c7297bb91ffc95e24ac33ae5b1b1b2efd619673c66920aeed1773b76",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "c0b0eb9ad21a00af098300202cffb7a5d2248caf0c2fb74df163ac329a4787d9"
+        },
+        {
+          "tcId": 90,
+          "comment": "K_chunk, salted with dek_salt",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "8ced5bf4da8b6066edf0573d80e0de495275d23e7ec3e617551e638adbbad83d",
+            "salt": "d56c3d4a619950e89f147cdeb25a56b203f9909c0f9d66c73b2bd5204c6b9864",
+            "label": "crypthix/v0/kdf/chunk-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07447ac78293c7297bb91ffc95e24ac33ae5b1b1b2efd619673c66920aeed1773b76",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "dbb88dd89acffee229cd5ad170f4cd8dc218460be52e1a4954c7107ef50a163e"
+        },
+        {
+          "tcId": 91,
+          "comment": "K_blobid, salted with dek_salt",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "8ced5bf4da8b6066edf0573d80e0de495275d23e7ec3e617551e638adbbad83d",
+            "salt": "d56c3d4a619950e89f147cdeb25a56b203f9909c0f9d66c73b2bd5204c6b9864",
+            "label": "crypthix/v0/kdf/blob-id-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07447ac78293c7297bb91ffc95e24ac33ae5b1b1b2efd619673c66920aeed1773b76",
+            "keyType": "MacKey"
+          },
+          "expect": "Ok",
+          "key": "2a3f081493a2fc04a95cf23ab5352f02494b5a5efd34e892c5b2d2421e516481"
+        },
+        {
+          "tcId": 92,
+          "comment": "K_ptmac, salted with dek_salt",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "8ced5bf4da8b6066edf0573d80e0de495275d23e7ec3e617551e638adbbad83d",
+            "salt": "d56c3d4a619950e89f147cdeb25a56b203f9909c0f9d66c73b2bd5204c6b9864",
+            "label": "crypthix/v0/kdf/plaintext-mac-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae07447ac78293c7297bb91ffc95e24ac33ae5b1b1b2efd619673c66920aeed1773b76",
+            "keyType": "MacKey"
+          },
+          "expect": "Ok",
+          "key": "7c2624d5ef15fceeadfedb345522a91753b0a3bcf96ad60ab03701004a96b65d"
+        },
+        {
+          "tcId": 93,
+          "comment": "K_ph",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "993328fb012296d62d264b3646c8b62b95ad788a19901483187fbaf673d7028e",
+            "label": "crypthix/v0/kdf/pack-header-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074493f55c1dd7433460db6e60c4b204e508",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "8af6b1dd0bb7017e4b0477644dfac13ac1a40923ba77800e020aeaeeee5a0cd6"
+        },
+        {
+          "tcId": 94,
+          "comment": "K_sh",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "993328fb012296d62d264b3646c8b62b95ad788a19901483187fbaf673d7028e",
+            "label": "crypthix/v0/kdf/shard-header-key",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074493f55c1dd7433460db6e60c4b204e508",
+            "keyType": "SealKey"
+          },
+          "expect": "Ok",
+          "key": "738c3e2afffd530fada4a1a5218367a305e631cc4dc714f3005c7da87b68d2d0"
+        },
+        {
+          "tcId": 95,
+          "comment": "K_shn",
+          "flags": [
+            "DerivedKey"
+          ],
+          "inputs": {
+            "ikm": "993328fb012296d62d264b3646c8b62b95ad788a19901483187fbaf673d7028e",
+            "label": "crypthix/v0/kdf/shard-nonce",
+            "context": "c6c1b9ef2d3f86ed0210a48eacae074493f55c1dd7433460db6e60c4b204e508",
+            "keyType": "ShardNonceKey"
+          },
+          "expect": "Ok",
+          "key": "058747505798cdf5eac749bc2c2a1c3b1c64a1ae621a5b8eee273bf37fd336e8"
+        }
+      ]
+    },
+    {
+      "type": "Mac",
+      "tests": [
+        {
+          "tcId": 96,
+          "comment": "MAC over the empty input",
+          "flags": [
+            "Mac"
+          ],
+          "inputs": {
+            "key": "cd2c74e4787e59172de2f6af7e88cc70f09b13f1d4cd27be9649f33c5286835a",
+            "data": ""
+          },
+          "expect": "Ok",
+          "mac": "ae43372cfc6b658a82387045424e092945855f12b4d89c98c9683b6e01a680e3"
+        },
+        {
+          "tcId": 97,
+          "comment": "MAC over a chunk",
+          "flags": [
+            "Mac"
+          ],
+          "inputs": {
+            "key": "cd2c74e4787e59172de2f6af7e88cc70f09b13f1d4cd27be9649f33c5286835a",
+            "data": "6368756e6b20706c61696e74657874"
+          },
+          "expect": "Ok",
+          "mac": "1cdb5eed7261f380c9f94d9accec91e0d3f052ae7959ed2a8a148d12f7e4898a"
+        },
+        {
+          "tcId": 98,
+          "comment": "the 2,048-byte gear table",
+          "flags": [
+            "GearTable"
+          ],
+          "inputs": {
+            "key": "dbd0828d9dfec9615320d213f6d8b91ce9ee7cac95e9e3018dcf5667b790e391"
+          },
+          "expect": "Ok",
+          "xof": "1bb14db74116beb81b1bc5dab7ce18032e584db86327af9287cced3a17b8083ac74f32468b869d810b8964072d178ca85215c420643b95005f8cd03bc7998786eca24c1566c1508bcbf9b36c83a5245a8f05d466c8ecdddb91660ca43b3ed77d60f84db9332a59ac7ad96a46a7d6d0a65274182dd8f63e72e27e3a6cd759d811279e14ec92bc4c90f746f21586ee01208e4c3e99e0e592d5e4716a32ee3a44e5f85fd70e5c1257032cb5b7f8196632a5b93477f6001f2570ce4b337b33a93c0eb7dc93c726da13f04d9fe2d0b23f2e9bea0b593b233e1f3de975608e8ca1ebb27a3c2c134ca643a70ebf576d3188f8dcac5fbb15689e0ea31c1136be00e613a9251c74cb0744497d7a62f66c4f87a2f15639c69f6063bf1b9d02c89b165ec655b23e52690da826075f75c30c5b1af56159894d4367e1148626734a59316a89ee8ab2cee9a46c0e804ad6adf5d678ddcd677ef8d5f727784469b3f3dea77d74a6497b617656750726fded6880ab4da48c61e5d0603caed574290d660dc1e904622f1aa9ac534abb15fd367e7eebd350686201b571183c9dea65a74b2466fa97d1ca363aa7c6e04dfa4bb4685748a86ed674a37620bdfe66b34cb0e9827c1936109dbbce928576ac3548778d7a023ff0e084a2ce8537758c14bd0e126f4abf1aca8e098393f96dc58dcf4cb40e849b5ecd3369bf9226fb93079308c8d76062af4e08d9d7f57c43b380ec89e83e8c3f1ab883efdbd1be3c1adbb426b0c356ea55265c3963eff3c053ae7dfc15bfbb01fa6485ff5c86f21fe63af6c75c97ee85ce6851378db62296e10723a953bbebcc39450e4140aec4aafe791df243ac6ad45f51d5121bf284f2da35bbdee4660c22d1305bb7f864ffa15947b7cf9692bcfcf531bf20f625bcb98150c830c1fce67917f3130cfe6b44c26e679f4490d121c9dc37e1fa873a87c5c7029112669ee9ee8e7215fc7ec8032e9245e51b7b7949e787f71b067a59cef91ea9c3cda7ff57f11a8ce2dc41dbf36cecc6b5a6f8fd5665d64498f143a5a7a19c615852a8139cee525616218f372cb3c9797cf1b42ba97cb05375924ca09d2059120934585c64eaa7d25757c50518ae5339901a278f7760961eacf555666ac0530381fe5770c5d31f0d90640a0dba69fa390fb612168451a2fd571c7501643680b525a7e883bbc83241d08e531f0d201530629e5f299d4c0a115f85ac5237de3aa872465be0d0312d1b785468fda9d900c281eee67fc392ee02166cc532428df1bf60af9df1d5d62313ff2f908bd8f8656865f86e1b13cbfb3ba53d40d7ffd07aaf02100dd9159368f88fe75680bd1af0f1703b565743d06cf4d790f5572a142411a2ff22b85748dd236402be1410234ef65363d55e6f45a83282e233cd88e7438b9a3f19450e3c120cf81140a19f0003e0fc2d62f8b0b08ba8e7bb0a873aeb6fb4ae479382714abb52ded976db3292c1c49cd49e136c0fa7ff3d868093df4ee70d256139bde75494a8821118c2b37fd93d1dcc6c93fe75fe0dad63c4e21082c094c7d7c231398af8bf7851880c8fda354520ca22303f21955d697c4b0088f0e795981a8d69d04e35a016cd466f6e256dfe5f07364951b6d5c85a787263dcac67524ebf46818fdad531ff34ccb9917d181e88efa6d1d9eb180f3ca05eab7b7e8482947b4c1628288dffa024e551f66727683c84d1444562bbce48ad62616dc94e56e642e69aa02d34956be72b711c93c6e529c606aabbe02eeca59c96930a16d591b71d894f7668d5405cae31ffab048d82976acdc7c39a8b4067af264d323cf1ee021c6cd564f9a8aa788199eb4c981ae2224668e5ec88f3c73c3ce7d950d325ae817b06c1b6fc79a4b81ded71f7344ae29d4dbad631e5dfc0475f378935c535a0ef9ca5516f33bb2e917778ee3b9105cfadc2f5d53e067ac945e3c786ce5c2fb5a84034d76b3bb411d0c589c940850fe854a65dc9aaaf717198fc2ec57034cf94cef76951a064379bb613b7791c19786fb8555a29961180b564e96a2e098fe906ff98ff462ce65d1fd0ac5c1849c7a01d6c40520f73cec57625f58e8c089800bfbe698e182b077b4d5c49bec7201bf482c020d081cbe1b80e351df6183516703cf0a1cf0533dfa1928bca53fe459ecc5b67b061ec3d3e8c272533dc2baa306e51b4d4f479bf256d8ba5478595528ca7d263004d8ae585f05b58579ebd1e8b1af65a36bcd0139cca8b4c393ac2cd820660800c50dd1ad2ce999f2a4f0efeac0367e7eb3ee0ac135003b060981894e435333b4a317ecb6b512dc955ccd79898ffb59df9b169edeb39e255062210d029fb15b83faa92b9d8c23aa38607cab7d8ecef2220feb13ce1dc8cee71c2f6c9d9f57b0eb1403317ad42de199c756e94351eed7d4bdc10cd56c68522354d8f7a708a81d818f34fff34a3c28d5c1d7be9898d6bf8e346749f028442463318a67499e3c0b743bdc90dece72f92ff85f5f5893debac1e9c64a359efe8eb1c6b04d8d132aba4b2b1af31bef15da01f789ad0385e46f85a909ba6a03db6aafed5cb28abbbd768fd7a88c96bfcebd5ea34abc92dfce740b8a8599838af6f15fd32a303c8ae0d90e267c07830ff926b74ee84cda3d136c45c75a988003886e356ea4c21c179da5b323d1ef2a55613b496d4e6b27d091d493c30a8a7cf14507406be046a75f259404a6de720581ecd2c1146855698eea1b26e35fad2242aca059bb596b1c729fb244decdca4990b7b1464d29840eb16ea6ccbaf60824eb80e651d9d4d829c978942f4df43446bba8053d8fe9680fbab1875171ecb2a31b64f2449ce9696dfe69e1dc37fc16b0984a56afde831ba5a89fbc66ba3c7963fff88447784d249d01b32927532a717549e97"
+        }
+      ]
+    },
+    {
+      "type": "ZeroValue",
+      "tests": [
+        {
+          "tcId": 99,
+          "comment": "an all-zero key",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "key",
+            "value": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 100,
+          "comment": "a key with one non-zero byte",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "key",
+            "value": "0000000000000000000000000000000000000000000000000000000000000001"
+          },
+          "expect": "Ok"
+        },
+        {
+          "tcId": 101,
+          "comment": "an all-zero object ID",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "objectId",
+            "value": "00000000000000000000000000000000"
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 102,
+          "comment": "an all-zero hash",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "hash",
+            "value": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 103,
+          "comment": "epoch 0",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "epoch",
+            "value": 0
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 104,
+          "comment": "root_seq 0",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "rootSeq",
+            "value": 0
+          },
+          "expect": "ZeroValue"
+        },
+        {
+          "tcId": 105,
+          "comment": "epoch 1, the first",
+          "flags": [
+            "ZeroValue"
+          ],
+          "inputs": {
+            "kind": "epoch",
+            "value": 1
+          },
+          "expect": "Ok"
+        }
+      ]
+    }
+  ],
+  "numberOfTests": 105
+}

@@ -89,7 +89,7 @@ format_errors! {
     KdfAboveCeiling => "passphrase KDF parameters above the ceiling",
     /// Signature or MAC invalid (FS-13, FS-14, FS-86).
     Signature => "signature or MAC invalid",
-    /// Small-order or non-canonical public key (FS-14).
+    /// Small-order, mixed-order or non-canonical public key (FS-14).
     WeakKey => "weak or non-canonical public key",
     /// Certificate missing, wrong vault, wrong capability or stale (FS-76, FS-77).
     CertChain => "certificate chain invalid",

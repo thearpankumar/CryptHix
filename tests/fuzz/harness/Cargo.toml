@@ -10,7 +10,10 @@ publish.workspace = true
 
 [dependencies]
 arbitrary = "1.5.0"
+crypthix-crypto = { path = "../../../crates/foundation/crypto", features = ["vectors"] }
 crypthix-types = { version = "0.0.0", path = "../../../crates/foundation/types" }
+curve25519-dalek = { version = "5.0.0", default-features = false }
+ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast"] }
 minicbor = { version = "2.3.1", default-features = false, features = ["std", "half"] }
 
 [lints]

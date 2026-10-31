@@ -2,9 +2,13 @@ RFC 8439, ChaCha20 and Poly1305 for IETF Protocols: ChaCha20-Poly1305 AEAD vecto
 
 source:     https://www.rfc-editor.org/rfc/rfc8439
 sections:   2.8.2 (AEAD example), A.5 (AEAD decryption)
-status:     not transcribed yet. The vectors are transcribed to JSON together with their runner in
-            the crypthix-crypto item, so every transcribed value is checked the day it lands.
-used by:    TV-01 (format spec FS-05)
+status:     transcribed 2026-10-30 from the plain-text document at the source URL; hex
+            dumps copied byte for byte, nothing recomputed. The crypthix-crypto runners
+            check every value against the primitive.
+files:
+  section 2.8.2 and A.5 -> aead.json
+used by:    TV-01 (format spec FS-05); runners in crypthix-crypto
 blobs:      git blob IDs (git hash-object) of the files here; checked
             by `cargo xtask check-vendored`
   fbcef4e68751138e62c173e0ac7d95d949e661f7  LICENSE
+  4ea40a68336c387d36891d5ab0607029cc325bba  aead.json

@@ -9,6 +9,8 @@ pub(crate) struct TestCase {
     pub(crate) flags: Vec<&'static str>,
     pub(crate) inputs: Vec<(&'static str, Input)>,
     pub(crate) expect: &'static str,
+    /// Expected outputs written beside `expect`, such as a derived key or a sealed field.
+    pub(crate) outputs: Vec<(&'static str, Input)>,
 }
 
 /// An input value. Byte inputs are written as lowercase hex.
@@ -21,6 +23,16 @@ pub(crate) enum Input {
 }
 
 impl Input {
+    /// A byte input, copied.
+    pub(crate) fn bytes(bytes: &[u8]) -> Self {
+        Input::Bytes(bytes.to_vec())
+    }
+
+    /// A text input, copied.
+    pub(crate) fn text(text: &str) -> Self {
+        Input::Text(text.to_owned())
+    }
+
     pub(crate) fn to_json(&self) -> Json {
         match self {
             Input::Bytes(bytes) => Json::hex(bytes),
@@ -54,11 +66,18 @@ impl TestCase {
             flags: flags.to_vec(),
             inputs,
             expect,
+            outputs: Vec::new(),
         }
     }
 
+    /// Adds expected outputs.
+    pub(crate) fn with_outputs(mut self, outputs: Vec<(&'static str, Input)>) -> Self {
+        self.outputs = outputs;
+        self
+    }
+
     pub(crate) fn to_json(&self, tc_id: i64) -> Json {
-        Json::object([
+        let mut fields = vec![
             ("tcId", Json::Int(tc_id)),
             ("comment", Json::str(self.comment)),
             ("flags", Json::strs(&self.flags)),
@@ -71,6 +90,12 @@ impl TestCase {
                 ),
             ),
             ("expect", Json::str(self.expect)),
-        ])
+        ];
+        fields.extend(
+            self.outputs
+                .iter()
+                .map(|(key, output)| (*key, output.to_json())),
+        );
+        Json::object(fields)
     }
 }

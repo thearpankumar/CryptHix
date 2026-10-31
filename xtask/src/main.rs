@@ -1,6 +1,7 @@
 //! Repository automation: architecture layer checks, git hooks and the `tests/` workspace.
 //!
 //! - `cargo xtask check-layers` checks crate dependencies against the layer rules.
+//! - `cargo xtask check-features` checks that no release build enables a test-only feature.
 //! - `cargo xtask pre-commit` runs the pre-commit checks on the staged changes.
 //! - `cargo xtask install-hooks` enables the hooks in `.githooks/` for this clone.
 //! - `cargo xtask vectors [--check]` rewrites the test vectors, or checks they are current.
@@ -17,6 +18,7 @@
 mod ci;
 mod commits;
 mod docs_check;
+mod features;
 mod layers;
 mod pre_commit;
 mod process;
@@ -39,6 +41,7 @@ fn main() -> ExitCode {
     };
     match command {
         "check-layers" => report(check_layers()),
+        "check-features" if rest.is_empty() => report(features::check()),
         "pre-commit" => pre_commit::run(),
         "install-hooks" => pre_commit::install(),
         "vectors" => side::vectors(rest),
@@ -57,7 +60,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: cargo xtask <check-layers | pre-commit | install-hooks | vectors | test-extra \
+        "usage: cargo xtask <check-layers | check-features | pre-commit | install-hooks | vectors | test-extra \
          | fuzz | ci | check-docs | check-vendored | check-commits>"
     );
     ExitCode::FAILURE

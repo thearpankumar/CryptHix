@@ -1,6 +1,6 @@
 [package]
 name = "crypthix-fuzz"
-description = "cargo-fuzz binaries for the crypthix-types parsers; each calls crypthix-fuzz-harness."
+description = "cargo-fuzz binaries for the crypthix-types parsers and crypthix-crypto inputs; each calls crypthix-fuzz-harness."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -63,6 +63,20 @@ bench = false
 [[bin]]
 name = "id_text"
 path = "fuzz_targets/id_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cx_open"
+path = "fuzz_targets/cx_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "verifying_key"
+path = "fuzz_targets/verifying_key.rs"
 test = false
 doc = false
 bench = false

@@ -156,6 +156,7 @@ pub(crate) fn set() -> VectorSet {
         file: "tv-03-cbor.json",
         set: "TV-03",
         structure: "cbor-document",
+        seed: None,
         extra: vec![("limits", "Limits::FORMAT_0")],
         notes: vec![
             ("Valid", &["FS-08", "M-37"], "Canonical CBOR of the allowed subset"),

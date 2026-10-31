@@ -38,20 +38,70 @@ exceptions = [
 multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
-# Dependency rule 3: only crypthix-crypto may import cryptography crates.
+# Dependency rule 3: only crypthix-crypto may import cryptography crates. `wrappers` lists the
+# only crates allowed to depend on a banned crate directly: crypthix-crypto, the audited crates
+# it wraps, test-only crates, the vector generator, which reimplements format spec section 7 on
+# its own so TV-04 and TV-05 check crypthix-crypto against an independent reading, and the fuzz
+# harness, which checks FS-14 against curve25519-dalek directly. Both workspaces share this list
+# (tests/deny.toml must equal this file), so each sees a few wrappers that only the other uses.
 deny = [
     { crate = "aes-gcm", wrappers = ["crypthix-crypto"] },
     { crate = "argon2", wrappers = ["crypthix-crypto"] },
     { crate = "aws-lc-rs", wrappers = ["crypthix-crypto"] },
-    { crate = "blake3", wrappers = ["crypthix-crypto"] },
-    { crate = "chacha20poly1305", wrappers = ["crypthix-crypto"] },
-    { crate = "ed25519-dalek", wrappers = ["crypthix-crypto"] },
-    { crate = "hkdf", wrappers = ["crypthix-crypto"] },
+    { crate = "blake2", wrappers = ["argon2"], reason = "only inside Argon2id" },
+    { crate = "blake3", wrappers = ["crypthix-crypto", "crypthix-vector-gen"] },
+    { crate = "chacha20", wrappers = ["chacha20poly1305", "crypthix-crypto", "proptest"], reason = "raw stream cipher; crypthix-crypto uses it only for the test-rng stream" },
+    { crate = "chacha20poly1305", wrappers = ["crypthix-crypto", "crypthix-vector-gen"] },
+    { crate = "curve25519-dalek", wrappers = ["ed25519-dalek", "crypthix-fuzz-harness"], reason = "reached only through ed25519-dalek in crypthix-crypto" },
+    { crate = "ed25519-dalek", wrappers = ["crypthix-crypto", "crypthix-fuzz-harness"] },
+    # Randomness comes straight from the kernel through crypthix-crypto (FS-01). The other
+    # parents are test or build tools only: rand and tempfile (proptest), ahash, jsonschema,
+    # jsonschema-value and referencing (the vector schema test), jobserver (cc, for libFuzzer).
+    # rand itself is banned below, so no product crate can reach getrandom through it.
+    { crate = "getrandom", wrappers = [
+        "crypthix-crypto", "rand", "tempfile", "ahash", "jsonschema", "jsonschema-value", "referencing",
+        "jobserver",
+    ], reason = "keys, IDs and nonce randomness come from crypthix-crypto::random (FS-01)" },
+    { crate = "hkdf", wrappers = ["crypthix-crypto", "crypthix-vector-gen"] },
+    { crate = "hmac", wrappers = ["hkdf"], reason = "only inside HKDF" },
     { crate = "ml-kem", wrappers = ["crypthix-crypto"] },
-    { crate = "sha2", wrappers = ["crypthix-crypto"] },
+    { crate = "openssl", reason = "the audited RustCrypto and dalek crates only" },
+    { crate = "poly1305", wrappers = ["chacha20poly1305"], reason = "only inside the AEAD" },
+    # A user-space RNG duplicates its state on fork or VM restore (FS-01, T-81); proptest's is
+    # the only one allowed.
+    { crate = "rand", wrappers = ["proptest"], reason = "user-space RNG (FS-01)" },
+    { crate = "rand_chacha", reason = "user-space RNG (FS-01)" },
+    { crate = "rand_pcg", reason = "user-space RNG (FS-01)" },
+    { crate = "rand_xorshift", wrappers = ["proptest"], reason = "user-space RNG (FS-01)" },
+    { crate = "fastrand", wrappers = ["tempfile"], reason = "user-space RNG (FS-01); tempfile names test files only" },
+    { crate = "oorandom", wrappers = ["criterion"], reason = "user-space RNG (FS-01); benchmarks only" },
+    { crate = "nanorand", reason = "user-space RNG (FS-01)" },
+    { crate = "rand_core", wrappers = ["chacha20", "getrandom", "rand", "rand_xorshift"], reason = "RNG traits only for test tooling" },
+    { crate = "ring", reason = "the audited RustCrypto and dalek crates only" },
+    { crate = "constant_time_eq", wrappers = ["blake3"], reason = "constant-time comparisons live in crypthix-crypto (FS-15)" },
+    { crate = "sha2", wrappers = ["crypthix-crypto", "ed25519-dalek", "crypthix-vector-gen"] },
+    { crate = "subtle", wrappers = ["crypthix-crypto", "ed25519-dalek", "curve25519-dalek"], reason = "constant-time comparisons live in crypthix-crypto (FS-15)" },
     { crate = "vsss-rs", wrappers = ["crypthix-crypto"] },
     { crate = "x25519-dalek", wrappers = ["crypthix-crypto"] },
+    # Other cryptography crates, so no product crate brings in a second, unaudited primitive.
+    "aes", "aes-gcm-siv", "aes-siv", "blake2b_simd", "boring", "crypto_box", "crypto_secretbox", "ecdsa",
+    "ed25519-compact", "ed25519-zebra", "k256", "libsodium-sys", "md-5", "openssl-sys", "orion", "p256",
+    "pbkdf2", "rsa", "rust-argon2", "scrypt", "sha1", "sha3", "sodiumoxide", "xsalsa20poly1305",
 ]
+
+# Features that would weaken strict Ed25519 verification (FS-14).
+[[bans.features]]
+crate = "ed25519-dalek"
+# `batch` verifies without `verify_strict`; `digest` adds prehashed Ed25519ph.
+deny = ["batch", "digest", "hazmat", "legacy_compatibility"]
+
+[[bans.features]]
+crate = "chacha20poly1305"
+deny = ["reduced-round"]
+
+[[bans.features]]
+crate = "curve25519-dalek"
+deny = ["legacy_compatibility"]
 
 [sources]
 unknown-registry = "deny"

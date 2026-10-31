@@ -50,6 +50,8 @@ jobs:
           - store_key
           - config_toml
           - id_text
+          - cx_open
+          - verifying_key
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,11 +105,14 @@ jobs:
         env:
           PROPTEST_CASES: "4096"
         run: cargo test --workspace --all-features --release --locked
+      # Tests marked slow, such as Argon2id at its 256 MiB floor (FS-94).
+      - name: Slow tests
+        run: cargo test --workspace --all-features --release --locked -- --ignored
       - name: Benchmarks build
         run: cargo bench --workspace --no-run --locked
 
   miri:
-    name: Miri (crypthix-types)
+    name: Miri (crypthix-types, crypthix-crypto)
     if: github.event.schedule != '47 3 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -123,12 +128,15 @@ jobs:
           rustup run nightly-2026-10-15 cargo miri setup
       # Miri runs each test case thousands of times slower; a few property cases suffice. The
       # tests read the vector files and proptest looks up its working directory, so Miri gets
-      # the host file system (isolation off). Tests over full-size limits skip themselves.
+      # the host file system (isolation off). Tests over full-size limits skip themselves. For
+      # crypthix-crypto only the unit tests run: the known-answer runners would take hours.
       - name: cargo miri test
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
           PROPTEST_CASES: "8"
-        run: rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
+        run: |
+          rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
+          rustup run nightly-2026-10-15 cargo miri test -p crypthix-crypto --lib --locked
 
   advisories:
     name: Fresh advisories
@@ -227,9 +235,9 @@ jobs:
           LIST_ONLY: ${{ github.event_name == 'pull_request' }}
         run: |
           if [ "$LIST_ONLY" = true ]; then
-            cargo mutants --workspace --shard "$SHARD/4" --list | wc -l
+            cargo mutants --workspace --all-features --shard "$SHARD/4" --list | wc -l
           else
-            cargo mutants --workspace --shard "$SHARD/4" --in-place --test-tool nextest
+            cargo mutants --workspace --all-features --shard "$SHARD/4" --in-place --test-tool nextest
           fi
       - name: Upload the mutation report
         if: always()

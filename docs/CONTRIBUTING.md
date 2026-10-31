@@ -17,7 +17,7 @@ cargo fmt --all
 cargo xtask ci            # every job below; or name some: cargo xtask ci lint test
 ```
 
-If you change a parser, also fuzz it for a few minutes on nightly, for example `cargo xtask fuzz cbor_differential --time 300` (see [Testing](style-guide.md#testing)).
+If you change a parser or `crypthix-crypto`, also fuzz it for a few minutes on nightly, for example `cargo xtask fuzz cbor_differential --time 300` or `cargo xtask fuzz cx_open --time 300` (see [Testing](style-guide.md#testing)).
 
 ## Commit messages
 

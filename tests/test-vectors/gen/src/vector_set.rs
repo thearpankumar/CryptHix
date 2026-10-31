@@ -4,10 +4,14 @@ use std::collections::BTreeSet;
 
 use crate::json::Json;
 use crate::test_case::TestCase;
-use crate::{tv02, tv03, tv17};
+use crate::{tv02, tv03, tv04, tv05, tv17};
 
 /// What the generator writes into the `generator` field of a set with no randomness.
 const GENERATOR: &str = "hand-written (crypthix-vector-gen reproduces it)";
+
+/// The `generator` field of a set drawn from the seeded stream (FS-94).
+const SEEDED_GENERATOR: &str =
+    "crypthix-vector-gen, seeded test-rng stream, independent section 7 code";
 
 /// One vector file.
 #[derive(Clone, Debug)]
@@ -16,6 +20,8 @@ pub struct VectorSet {
     pub file: &'static str,
     pub(crate) set: &'static str,
     pub(crate) structure: &'static str,
+    /// The seed of the set's labelled streams, for sets that draw randomness (FS-94).
+    pub(crate) seed: Option<[u8; 32]>,
     /// Header fields after the common ones, such as the limits a set runs with.
     pub(crate) extra: Vec<(&'static str, &'static str)>,
     /// Flag name, the rules and threats it cites, and its description.
@@ -66,8 +72,18 @@ impl VectorSet {
             ("structure", Json::str(self.structure)),
             ("formatVersion", Json::Int(0)),
             ("suiteId", Json::Int(1)),
-            ("generator", Json::str(GENERATOR)),
+            (
+                "generator",
+                Json::str(if self.seed.is_some() {
+                    SEEDED_GENERATOR
+                } else {
+                    GENERATOR
+                }),
+            ),
         ];
+        if let Some(seed) = &self.seed {
+            header.push(("seed", Json::hex(seed)));
+        }
         header.extend(
             self.extra
                 .iter()
@@ -90,5 +106,11 @@ impl VectorSet {
 /// Every vector set the generator writes.
 #[must_use]
 pub fn sets() -> Vec<VectorSet> {
-    vec![tv02::set(), tv03::set(), tv17::set()]
+    vec![
+        tv02::set(),
+        tv03::set(),
+        tv04::set(),
+        tv05::set(),
+        tv17::set(),
+    ]
 }

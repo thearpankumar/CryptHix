@@ -121,6 +121,7 @@ pub(crate) fn set() -> VectorSet {
         file: "tv-02-preamble.json",
         set: "TV-02",
         structure: "preamble",
+        seed: None,
         extra: Vec::new(),
         notes: vec![
             ("Valid", &["FS-06", "FS-07", "T-39"], "A well-formed preamble"),
