@@ -54,14 +54,31 @@ mod tests {
     }
 
     /// Runs `child` in a forked child, which reports whether it held by exiting 0.
+    #[cfg(all(target_os = "linux", not(miri)))]
+    fn in_forked_child(child: impl FnOnce() -> bool) -> bool {
+        in_child(libc::fork, child)
+    }
+
+    /// `fork` without the `pthread_atfork` handlers, as `_Fork` or a raw `clone` makes a child.
+    /// Only the exit signal is set, which `clone` takes first on every architecture but s390x;
+    /// the rest is zero, so the child gets a copy of the stack, as from `fork`.
+    #[cfg(all(target_os = "linux", not(miri), not(target_arch = "s390x")))]
+    #[expect(unsafe_code, reason = "clone has no safe interface")]
+    unsafe extern "C" fn fork_without_handlers() -> libc::pid_t {
+        // SAFETY: the caller treats the child as after `fork`.
+        let pid = unsafe { libc::syscall(libc::SYS_clone, libc::SIGCHLD, 0, 0, 0, 0) };
+        libc::pid_t::try_from(pid).expect("clone returns a pid or -1")
+    }
+
+    /// Runs `child` in a child made by `fork`, which reports whether it held by exiting 0.
     ///
     /// The child only reads and writes atomics and calls `_exit`, all async-signal-safe, so it
     /// is sound even though other test threads run in the parent.
     #[cfg(all(target_os = "linux", not(miri)))]
     #[expect(unsafe_code, reason = "fork and _exit have no safe interface")]
-    fn in_forked_child(child: impl FnOnce() -> bool) -> bool {
+    fn in_child(fork: unsafe extern "C" fn() -> libc::pid_t, child: impl FnOnce() -> bool) -> bool {
         // SAFETY: see above; the child ends in `_exit` without returning into the harness.
-        let pid = unsafe { libc::fork() };
+        let pid = unsafe { fork() };
         assert!(pid >= 0, "fork failed");
         if pid == 0 {
             let held = child();
@@ -91,6 +108,15 @@ mod tests {
                 })
         }));
         assert_eq!(current(), parent, "the parent's generation is unchanged");
+    }
+
+    /// A child made without the `pthread_atfork` handlers gets a new generation too: the
+    /// marker page, not the fork handler, gives it.
+    #[cfg(all(target_os = "linux", not(miri), not(target_arch = "s390x")))]
+    #[test]
+    fn a_child_made_without_the_fork_handlers_gets_a_new_generation() {
+        let parent = current();
+        assert!(in_child(fork_without_handlers, || current() != parent));
     }
 
     /// The fork handler of kernels without `MADV_WIPEONFORK` counts every `fork` in the child,

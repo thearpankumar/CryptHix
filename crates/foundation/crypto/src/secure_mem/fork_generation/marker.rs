@@ -32,10 +32,7 @@ const CLAIMED: u64 = u64::MAX;
 /// The running process's generation: the marker's, or the fork count where there is no marker
 /// page.
 pub(super) fn current() -> u64 {
-    let marker = match MARKER.load(Ordering::Acquire) {
-        seen if seen.is_null() => set_up(),
-        seen => seen,
-    };
+    let marker = chosen(&MARKER, map_marker);
     if ptr::eq(marker, no_marker()) {
         return fork_handler::forks();
     }
@@ -46,6 +43,14 @@ pub(super) fn current() -> u64 {
         &LATEST,
         fork_generation::forget_inherited,
     )
+}
+
+/// The marker `published` holds, set up with `map` by the first call.
+fn chosen(published: &AtomicPtr<AtomicU64>, map: fn() -> Option<*mut AtomicU64>) -> *mut AtomicU64 {
+    match published.load(Ordering::Acquire) {
+        seen if seen.is_null() => set_up(published, map),
+        seen => seen,
+    }
 }
 
 fn no_marker() -> *mut AtomicU64 {
@@ -81,19 +86,19 @@ fn take_generation(marker: &AtomicU64, latest: &AtomicU64, forget: fn()) -> u64 
     }
 }
 
-/// Maps the marker page, or registers the fork handler if it cannot, and publishes whichever
-/// the first thread to finish chose, so a process never mixes the two.
-fn set_up() -> *mut AtomicU64 {
-    let new = map_marker().unwrap_or_else(|| {
+/// Maps the marker page with `map`, or registers the fork handler if it cannot, and publishes
+/// in `published` whichever the first thread to finish chose, so a process never mixes the two.
+fn set_up(published: &AtomicPtr<AtomicU64>, map: fn() -> Option<*mut AtomicU64>) -> *mut AtomicU64 {
+    let new = map().unwrap_or_else(|| {
         // Before the choice is published, so no thread uses the counter unregistered.
         fork_handler::register_count_fork();
         no_marker()
     });
-    match MARKER.compare_exchange(ptr::null_mut(), new, Ordering::AcqRel, Ordering::Acquire) {
+    match published.compare_exchange(ptr::null_mut(), new, Ordering::AcqRel, Ordering::Acquire) {
         Ok(_) => new,
         Err(won) => {
             if !ptr::eq(new, no_marker()) {
-                // SAFETY: the page `map_marker` just mapped, never published, so nothing
+                // SAFETY: the page `map` just mapped, never published, so nothing
                 // refers to it.
                 let unmapped = unsafe { mm::munmap(new.cast(), Region::page_size()) };
                 debug_assert!(unmapped.is_ok(), "munmap of an own page cannot fail");
@@ -158,5 +163,39 @@ mod tests {
         marker.store(0, Ordering::Release);
         assert_eq!(take_generation(&marker, &latest, clear), 43);
         assert_eq!(CLEARED.load(Ordering::Acquire), 2);
+    }
+
+    fn no_page() -> Option<*mut AtomicU64> {
+        None
+    }
+
+    /// Once a marker is published, it is used as it is: nothing is mapped again.
+    #[test]
+    fn a_published_marker_is_not_set_up_again() {
+        fn never_called() -> Option<*mut AtomicU64> {
+            unreachable!("a published marker is not set up again")
+        }
+        let published = AtomicPtr::new(no_marker());
+        assert!(ptr::eq(chosen(&published, never_called), no_marker()));
+    }
+
+    /// Without a page the fork counter is chosen, and stays chosen.
+    #[test]
+    fn without_a_page_the_fork_counter_is_chosen_and_kept() {
+        let published = AtomicPtr::new(ptr::null_mut());
+        let fork_counter = ptr::from_ref(&NO_MARKER).cast_mut();
+        assert!(ptr::eq(chosen(&published, no_page), fork_counter));
+        assert!(ptr::eq(published.load(Ordering::Acquire), fork_counter));
+    }
+
+    /// A thread that loses the race to publish takes the winner's choice; without a page of
+    /// its own it has nothing to unmap.
+    #[test]
+    fn the_thread_that_loses_the_race_takes_the_published_marker() {
+        static WINNER: AtomicU64 = AtomicU64::new(0);
+        let winner = ptr::from_ref(&WINNER).cast_mut();
+        let published = AtomicPtr::new(winner);
+        assert!(ptr::eq(set_up(&published, no_page), winner));
+        assert!(ptr::eq(published.load(Ordering::Acquire), winner));
     }
 }

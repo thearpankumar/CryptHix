@@ -1,0 +1,6 @@
+# cargo-mutants settings (https://mutants.rs/filter_mutants.html).
+
+# `^` on flags with no bit in common is `|`, so these mutants cannot change behaviour.
+exclude_re = [
+    'replace \| with \^ in map_marker$',
+]
