@@ -199,8 +199,11 @@ jobs:
       # External links in the Markdown files this PR adds or changes; the weekly scheduled run
       # checks every file. File names go through xargs, never through a shell.
       - name: Check external links
+        # With a token lychee checks github.com links through the GitHub API instead of fetching
+        # the pages, which GitHub throttles from CI runners (HTTP/2 errors, 429, 504).
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git diff -z --name-only --diff-filter=ACMR "$BASE...HEAD" -- '*.md' \
             | xargs -0 --no-run-if-empty "$RUNNER_TEMP/bin/lychee" --no-progress --
