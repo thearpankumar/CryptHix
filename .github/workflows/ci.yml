@@ -39,6 +39,8 @@ jobs:
       pull-requests: read # paths-filter lists a PR's changed files through the API
     outputs:
       side: ${{ steps.filter.outputs.side }}
+      crypto: ${{ steps.filter.outputs.crypto }}
+      kernel: ${{ steps.filter.outputs.kernel }}
       fuzz: ${{ steps.filter.outputs.fuzz }}
       mutants: ${{ steps.filter.outputs.mutants }}
       docs: ${{ steps.filter.outputs.docs }}
@@ -58,6 +60,21 @@ jobs:
               - "Cargo.lock"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+            crypto:
+              - "crates/foundation/types/**"
+              - "crates/foundation/crypto/**"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+            kernel:
+              - "crates/foundation/types/**"
+              - "crates/foundation/crypto/**"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".config/nextest.toml"
+              - "xtask/src/kernel_test.rs"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/kernel-test.yml"
             fuzz:
               - "tests/fuzz/**"
               - "tests/Cargo.lock"
@@ -187,7 +204,18 @@ jobs:
         with:
           cache-key: test
           tools: cargo-nextest@0.9.148
+      # What decides the protected key memory level (O1), so a failure below can be explained.
+      - name: Key memory diagnostics
+        run: |
+          echo "kernel:  $(uname -r)"
+          echo "config:  $(grep SECRETMEM "/boot/config-$(uname -r)" || true)"
+          echo "memlock: $(ulimit -l)"
       - run: cargo xtask ci test
+        env:
+          # The ubuntu-24.04 image runs a 7.0 Azure kernel (actions/runner-images,
+          # images/ubuntu/Ubuntu2404-Readme.md), where memfd_secret works by default since 6.5, so
+          # the protected key memory tests fail rather than skip if keys do not get secret pages.
+          CRYPTHIX_REQUIRE_SECRETMEM: "1"
 
   doc:
     name: Docs
@@ -240,6 +268,45 @@ jobs:
             . -> target
             tests -> target
       - run: cargo xtask ci side
+
+  # secure_mem compiles different code on every OS, and the nightly platform runs come too late
+  # for a pull request, so one other OS's branches are linted here: Windows, cross-compiled on
+  # Linux, which needs only MinGW's C compiler for the C parts of blake3 and alloca.
+  windows-clippy:
+    name: Clippy for Windows
+    needs: changes
+    # `changes` is skipped on push, so this job must not require it to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.crypto == 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: windows-clippy
+      - name: Install the Windows target and MinGW
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - run: >-
+          cargo clippy -p crypthix-crypto --all-features --all-targets --locked
+          --target x86_64-pc-windows-gnu -- -D warnings
+
+  # Protected key memory on a kernel with the CVE-2026-93243 fix and one without it, booted in
+  # QEMU with virtme-ng (about 5 minutes per kernel, side by side).
+  kernel-test:
+    name: Kernel test
+    needs: changes
+    # `changes` is skipped on push, so this job must not require it to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.kernel == 'true') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/kernel-test.yml
 
   fuzz-smoke:
     name: Fuzz smoke
@@ -317,6 +384,8 @@ jobs:
       - doc
       - deny
       - side
+      - windows-clippy
+      - kernel-test
       - fuzz-smoke
       - mutants
     runs-on: ubuntu-24.04
@@ -326,5 +395,5 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: changes, pr, links, side, fuzz-smoke, mutants
+          allowed-skips: changes, pr, links, side, windows-clippy, kernel-test, fuzz-smoke, mutants
           allowed-failures: mutants

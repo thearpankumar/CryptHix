@@ -1,0 +1,118 @@
+# Protected key memory (O1, T-31) on kernels on both sides of the CVE-2026-93243 fix, which
+# changed how memfd_secret pages count against RLIMIT_MEMLOCK: per process when mapped before it,
+# per user when faulted in after it. The runner's own kernel predates the fix, so this boots
+# pinned Ubuntu mainline builds with virtme-ng and runs the crypthix-crypto tests inside each
+# (`cargo xtask kernel-test`, see docs/CONTRIBUTING.md). The accounting probe must report the
+# model each kernel is pinned for, so a kernel on the wrong side of the fix fails the run.
+#
+# Called by ci.yml (pull requests that touch the crypto crate, and master) and scheduled.yml.
+name: Kernel test
+
+on:
+  workflow_call:
+
+permissions: {}
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  kernel-test:
+    name: Kernel ${{ matrix.version }} (${{ matrix.accounting }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Has the fix: mainline since 7.3-rc2 (upstream 97d34aa65c29, "mm/secretmem: properly
+          # account locked pages").
+          - version: v7.3.3
+            release: 7.3.3-070303-generic
+            accounting: per-user
+            image: linux-image-unsigned-7.3.3-070303-generic_7.3.3-070303.202611062055_amd64.deb
+            image-sha256: d12589443aa25a66866a936ed408020ad505881617fffb652d3ab7eea970fb49
+            modules: linux-modules-7.3.3-070303-generic_7.3.3-070303.202611062055_amd64.deb
+            modules-sha256: 6f20310c5e9e5bfdb48dfe7d461541555fdbbf3f4c3dd0100bdf286cf687bce1
+          # The last 6.12 stable release before the fix's backport (a41c95ac90f2, in 6.12.113).
+          - version: v6.12.112
+            release: 6.12.112-0612112-generic
+            accounting: per-process
+            image: linux-image-unsigned-6.12.112-0612112-generic_6.12.112-0612112.202610031248_amd64.deb
+            image-sha256: aef277f274a42ec7c983e4c815de833549914bc4c1225d25cf91c6a725abe68e
+            modules: linux-modules-6.12.112-0612112-generic_6.12.112-0612112.202610031248_amd64.deb
+            modules-sha256: 3a38208d1c640bbe69c20389404f6d457d1a3d51851610d7b02d97c22ed3fc00
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: kernel-test
+          tools: cargo-nextest@0.9.148
+      # GitHub-hosted Linux runners have KVM, but /dev/kvm is root's until a udev rule opens it
+      # (https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/).
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # QEMU is pinned to the noble release build, which the archive keeps; the rest comes
+      # unpinned from the signed Ubuntu archive. virtme-ng is pinned by version and wheel hash,
+      # and takes its two dependencies from those packages.
+      - name: Install QEMU and virtme-ng
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends --allow-downgrades \
+            qemu-system-x86=1:8.2.2+ds-0ubuntu1 qemu-system-common=1:8.2.2+ds-0ubuntu1 \
+            busybox-static file kmod python3-argcomplete python3-requests python3-venv
+          python3 -m venv --system-site-packages "$RUNNER_TEMP/vng"
+          echo 'virtme-ng==1.42 --hash=sha256:99589f1f5d74249038fe3c52aad9d3c33cb82a2d9617997511d4489fc709a707' \
+            > "$RUNNER_TEMP/virtme-ng.txt"
+          "$RUNNER_TEMP/vng/bin/pip" install --no-deps --only-binary :all: --require-hashes \
+            -r "$RUNNER_TEMP/virtme-ng.txt"
+          echo "$RUNNER_TEMP/vng/bin" >> "$GITHUB_PATH"
+          qemu-system-x86_64 --version | head -n 1
+          "$RUNNER_TEMP/vng/bin/vng" --version
+      # The image and modules packages must have the hashes pinned above, and those must be the
+      # hashes the build published in its CHECKSUMS file; either mismatch fails the job.
+      - name: Download and verify the kernel
+        env:
+          BASE_URL: https://kernel.ubuntu.com/mainline/${{ matrix.version }}/amd64
+          IMAGE: ${{ matrix.image }}
+          IMAGE_SHA256: ${{ matrix.image-sha256 }}
+          MODULES: ${{ matrix.modules }}
+          MODULES_SHA256: ${{ matrix.modules-sha256 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/kernel/debs" "$RUNNER_TEMP/kernel/root"
+          cd "$RUNNER_TEMP/kernel/debs"
+          for file in CHECKSUMS "$IMAGE" "$MODULES"; do
+            curl -sSfL --proto '=https' --tlsv1.2 -o "$file" "$BASE_URL/$file"
+          done
+          printf '%s  %s\n' "$IMAGE_SHA256" "$IMAGE" "$MODULES_SHA256" "$MODULES" > pinned.sha256
+          if [ "$(grep -cFxf pinned.sha256 CHECKSUMS)" -ne 2 ]; then
+            echo "::error::the pinned hashes are not the ones in the published CHECKSUMS"
+            exit 1
+          fi
+          sha256sum --strict -c pinned.sha256
+          dpkg-deb -x "$IMAGE" ../root
+          dpkg-deb -x "$MODULES" ../root
+      - name: Key memory diagnostics (host)
+        run: |
+          echo "kernel:  $(uname -r)"
+          echo "memlock: $(ulimit -l)"
+          ls -l /dev/kvm
+      - name: cargo xtask kernel-test
+        env:
+          RELEASE: ${{ matrix.release }}
+          ACCOUNTING: ${{ matrix.accounting }}
+        run: >-
+          cargo xtask kernel-test --kernel "$RUNNER_TEMP/kernel/root/boot/vmlinuz-$RELEASE"
+          --expect "$ACCOUNTING"
