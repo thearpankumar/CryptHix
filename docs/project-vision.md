@@ -522,7 +522,7 @@ Design rule: RabbitMQ is never required for a single user; the laptop product st
 
 | ID | Feature | Description | Stage |
 | --- | --- | --- | --- |
-| O1 | Protected key memory | Keys in `memfd_secret` pages (Linux 5.14+), `mlock`ed, excluded from core dumps | MVP |
+| O1 | Protected key memory | Keys in `memfd_secret` pages (Linux 5.14+, on by default since [6.5](https://git.kernel.org/linus/b758fe6df50d)), else `mlock`ed; plaintext buffers `mlock`ed where `RLIMIT_MEMLOCK` allows; all excluded from core dumps (Linux; Windows and macOS with A11, A12) | MVP |
 | O2 | Self-sandbox | Daemon locks itself down with Landlock and seccomp-bpf, no-new-privs | v1 |
 | O3 | TPM sealing | Root share unseals only on an unmodified boot (PCR policy) | v1 |
 | O4 | **BPF-LSM guard** | Only `crypthixd` may open shard files; blocks `ptrace`, `process_vm_readv` and `/proc/<pid>/mem` into allowed programs; blocks unmounting by other processes. Needed to stop the injection attacks that broke Chrome's App-Bound Encryption | v1 |

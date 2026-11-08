@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | Format 0, draft v0.6 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, the primitives, label registry and CX-AEAD in `crypthix-crypto`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
+| Status | Format 0, draft v0.7 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, the primitives, label registry and CX-AEAD in `crypthix-crypto`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Format / suite | Format version `0x0000`, suite `0x0001` |
@@ -425,7 +425,7 @@ HKDF-Expand is keyed directly by K, which RFC 5869 section 3.3 allows for unifor
   overhead: 72 bytes. A wrapped 32-byte key is 104 bytes.
 ```
 
-**FS-28.** A key wrap and a data seal never share an AAD label: the key-wrap labels (`keyring`, `epoch`, `vault-sign-key`, `device-key`, `dek-wrap`, `pack-key-wrap`, `log-key`) are sealed and opened only as wrapped keys, so a wrapped key's bytes never reach a caller and chosen bytes never become a key (backlog rule 9). An all-zero nonce is `ZeroValue` (FS-03). Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle.
+**FS-28.** A key wrap and a data seal never share an AAD label: the key-wrap labels (`keyring`, `epoch`, `vault-sign-key`, `device-key`, `dek-wrap`, `pack-key-wrap`, `log-key`) are sealed and opened only as wrapped keys, so a wrapped key's bytes never reach a caller and chosen bytes never become a key (backlog rule 9). An all-zero nonce is `ZeroValue` (FS-03). Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle. An open whose commitment holds but that gets no protected memory for its plaintext fails with a memory error of `crypthix-crypto`, not a format error and never `Decrypt`, so memory pressure is not mistaken for tampering; it reveals nothing, since only a genuine nonce and commitment get that far.
 
 **FS-29.** Nonces are 24 bytes and come in two kinds. Neither is taken straight from `getrandom`: following the hedging framework of [Ristenpart and Yilek (NDSS 2010)](https://www.cs.toronto.edu/~ristenpart/papers/sslhedge.html), the randomness is mixed with the key, the AAD and the plaintext, so repeated randomness (a VM restored from a snapshot, T-81) leaks at most that two seals are equal, the minimum any deterministic scheme leaks ([RFC 8452](https://www.rfc-editor.org/rfc/rfc8452)). This is a privacy bound; authenticity rests, as always, on the commitment and the Poly1305 tag under the per-nonce key:
 
@@ -468,7 +468,7 @@ flowchart TB
     XW["Device X-Wing keys (P4)"] -- "signed wrap of epoch KEK" --> KEK2
 ```
 
-**FS-31.** The root secret `s` is a uniformly random, canonically encoded Ristretto255 scalar (32 bytes, below the group order ℓ), sampled as `Scalar::from_bytes_mod_order_wide(getrandom[64])`. The root key is `RK = KDF(s, -, kdf/root, vault_id)`. Neither is ever stored whole; only share slots and the printed recovery share hold `s`, and only protected memory holds them once recombined.
+**FS-31.** The root secret `s` is a uniformly random, canonically encoded Ristretto255 scalar (32 bytes, below the group order ℓ), sampled as `Scalar::from_bytes_mod_order_wide(getrandom[64])`. The root key is `RK = KDF(s, -, kdf/root, vault_id)`. Neither is ever stored whole; only share slots and the printed recovery share hold `s`, and only protected memory (the key pool of `crypthix-crypto::secure_mem`, O1) holds them once recombined.
 
 **FS-32.** The keyring key is 32 random bytes per keyring generation, stored wrapped under `KDF(RK, -, kdf/keyring-wrap, vault_id ‖ u32be(gen))`.
 
@@ -1284,7 +1284,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `ZeroValue` | FS-03, FS-04 | Zero key, ID, hash or counter |
 | `VaultId` | FS-02 | `vault_id` does not match `master_pk` |
 | `MissingKey` | FS-30 | Key lookup missed |
-| `Decrypt` | FS-28 | Any CX-AEAD failure, as seen outside `crypthix-crypto` |
+| `Decrypt` | FS-28 | Any failed CX-AEAD check, as seen outside `crypthix-crypto` |
 | `Commitment` | FS-28 | Inside `crypthix-crypto` only: commitment mismatch (key, nonce or AAD changed) |
 | `AeadTag` | FS-28 | Inside `crypthix-crypto` only: tag mismatch (ciphertext or tag changed) |
 | `Binding` | FS-56, FS-58, FS-65, FS-73, FS-78, FS-79 | A blob, header, entry or signer does not match what refers to it |
@@ -1542,6 +1542,7 @@ All three are tracked in [threat-model section 14](threat-model.md#14-open-quest
 
 | Version | Date | Change |
 | --- | --- | --- |
+| v0.7 | 2026-11-08 | From the protected key memory item (O1); no bytes change. FS-31's protected memory is the key pool of `crypthix-crypto::secure_mem`. FS-28: no protected memory for the plaintext is a memory error, never `Decrypt` |
 | v0.6 | 2026-10-30 | From the crypto wrappers item (`crypthix-crypto`). Every nonce that was random is now hedged (FS-29, FS-55, FS-57, FS-60), because the kernel reseeds after a VM restore only with a VM generation ID (FS-01, T-81); readers are unaffected, since Open reads the nonce from the seal. FS-29 also says a failed RNG seals nothing, states that the equality bound is about privacy and the SIV distinctness bound, and FS-25 names CX-AEAD's internal labels as its one exception. FS-28 separates key-wrap labels from data labels and makes an all-zero nonce `ZeroValue`; the path index text says hedged. TV-05 has a hedged pair with replayed randomness and an all-zero nonce. FS-14 also rejects mixed-order public keys (`WeakKey`): `verify_strict` alone accepts them, as Wycheproof tcId 160 to 180 and speccheck case 3 show. TV-04 and TV-05 added; the generator computes them with its own section 7 code (FS-94), and `expect` may name `Commitment` and `AeadTag` in TV-05 only. The RFC and XChaCha draft vectors are transcribed to JSON (20.1). OQ-13 decided: no FIPS mode in format 0 |
 | v0.5 | 2026-10-29 | From the fuzzing and test-harness item; no valid bytes change. `tests/` is its own workspace, holding the generator and the fuzz targets (20.1). The vector schema is draft 2020-12; `seed` and `zstd` are optional for sets with no randomness or compression, and sets may add header strings (20.2). The seeded generator stream arrives with `crypthix-crypto` (FS-94). External vectors: Wycheproof, BLAKE3 and ed25519-speccheck vendored unchanged; RFC vectors are transcribed with their runners |
 | v0.4 | 2026-10-29 | From implementing `crypthix-types` and four persona reviews of it. Configs are immutable and named `configs/<config_seq>.chx`, since a config replaced in place broke crash safety (FS-87); only share slots are replaced in place. Clarifications that change no valid bytes: preamble check order (FS-07); `Limit` versus `Truncated` for short input and how items are counted (FS-11); control characters are Unicode Cc including DEL (FS-10); the negative GREASE key is −v and GREASE entries are kept for exact re-encoding (FS-22); byte-order error precedence, with a tag, float or simple value as a key being `NonCanonical` (FS-93); non-canonical store names of a known shape are `NameMismatch` (FS-92); `sender_id` added to 4.1 |
