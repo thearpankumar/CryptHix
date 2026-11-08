@@ -4,7 +4,7 @@
 mod common;
 
 use crypthix_crypto::aad::Aad;
-use crypthix_crypto::cx_aead;
+use crypthix_crypto::cx_aead::{self, OpenError};
 use crypthix_crypto::hash;
 use crypthix_crypto::key::{SealKey, ShardNonceKey};
 use crypthix_crypto::label::HashLabel;
@@ -98,9 +98,9 @@ fn check_open(test: &Value) -> &str {
     let opaque = cx_aead::open(&key(test), &aad(test), &sealed).err();
     let expected = match expect {
         "Ok" => None,
-        "Truncated" => Some(FormatError::Truncated),
-        "ZeroValue" => Some(FormatError::ZeroValue),
-        _ => Some(FormatError::Decrypt),
+        "Truncated" => Some(OpenError::Format(FormatError::Truncated)),
+        "ZeroValue" => Some(OpenError::Format(FormatError::ZeroValue)),
+        _ => Some(OpenError::Format(FormatError::Decrypt)),
     };
     assert_eq!(opaque, expected, "{}", test["comment"]);
     expect

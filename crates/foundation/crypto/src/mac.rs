@@ -13,6 +13,11 @@ pub struct Mac(blake3::Hasher);
 
 impl Mac {
     /// Starts a MAC under `key`.
+    ///
+    /// # Panics
+    ///
+    /// On Linux, in a child forked without `exec` after `key` was made
+    /// ([`secure_mem`](crate::secure_mem#fork)).
     pub fn new(key: &MacKey) -> Self {
         Self::keyed(sealed::material(key))
     }
@@ -48,6 +53,11 @@ impl std::fmt::Debug for Mac {
 }
 
 /// `MAC(key, data)`.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 #[must_use]
 pub fn mac(key: &MacKey, data: &[u8]) -> Hash32 {
     let mut mac = Mac::new(key);
@@ -58,6 +68,11 @@ pub fn mac(key: &MacKey, data: &[u8]) -> Hash32 {
 /// Fills `out` with the keyed BLAKE3 XOF under `key` over the empty input; the gear table is its
 /// first 2,048 bytes (FS-52). The hasher and the output reader, which both hold key-derived
 /// state, are wiped afterwards.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 pub fn xof(key: &XofKey, out: &mut [u8]) {
     let mut hasher = blake3::Hasher::new_keyed(sealed::material(key));
     let mut reader = hasher.finalize_xof();

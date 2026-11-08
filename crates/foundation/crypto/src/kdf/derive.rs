@@ -8,21 +8,50 @@ use crate::kdf::KdfContext;
 use crate::key::KdfKey;
 use crate::key::sealed;
 use crate::label::{DeriveLabel, KdfLabel};
+use crate::secure_mem::MemError;
+
+/// HKDF keeps its pseudorandom key in an `Hmac<Sha256>`: an inner and an outer SHA-256 state
+/// and a block buffer. `hmac` has no `Drop` of its own; those parts wipe themselves when
+/// dropped only with `digest`'s `zeroize` feature. Neither `hkdf` nor this crate can name that
+/// feature (`hkdf` has none, and deny.toml allows `hmac` only inside it), so `sha2`'s
+/// `zeroize` feature turns it on. These fail the build if that ever stops.
+const _: () = {
+    use hkdf::hmac::block_api::HmacCore;
+    use hkdf::hmac::digest::block_api::{Buffer, EagerHash};
+    use zeroize::ZeroizeOnDrop;
+
+    const fn wipes_on_drop<T: ZeroizeOnDrop>() {}
+    wipes_on_drop::<<Sha256 as EagerHash>::Core>();
+    wipes_on_drop::<Buffer<HmacCore<Sha256>>>();
+};
 
 /// Derives a 32-byte value: `HKDF-Expand(HKDF-Extract(salt, ikm), u8 len ‖ label ‖ ctx, 32)`
 /// (section 7.1, FS-38). The label decides the output type.
 ///
 /// `salt` is `None` for every derivation of FS-38 except those from a DEK, which use its
 /// `dek_salt`; `None` is HKDF's default of 32 zero bytes.
-#[must_use]
+///
+/// A derived key is written straight into its slot of protected memory (O1).
+///
+/// # Errors
+///
+/// [`MemError`] if no protected memory is free for a derived key.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `ikm` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 pub fn kdf<L: DeriveLabel>(
     ikm: &KdfKey,
     salt: Option<&[u8; 32]>,
     label: L,
     context: &KdfContext,
-) -> L::Output {
+) -> Result<L::Output, MemError> {
     let hkdf = Hkdf::<Sha256>::new(salt.map(<[u8; 32]>::as_slice), sealed::material(ikm));
-    sealed::from_material(*expand_with(&hkdf, label.into(), &[context.as_bytes()]))
+    sealed::new_with(|out| {
+        expand_into(&hkdf, label.into(), &[context.as_bytes()], out);
+        Ok::<(), MemError>(())
+    })
 }
 
 /// `HKDF-Expand(key, u8 len ‖ label ‖ parts, 32)` keyed directly by a uniform 32-byte key, as
@@ -33,15 +62,19 @@ pub(crate) fn expand(key: &[u8; 32], label: KdfLabel, parts: &[&[u8]]) -> Zeroiz
 }
 
 fn expand_with(hkdf: &Hkdf<Sha256>, label: KdfLabel, parts: &[&[u8]]) -> Zeroizing<[u8; 32]> {
+    let mut okm = Zeroizing::new([0u8; 32]);
+    expand_into(hkdf, label, parts, &mut okm);
+    okm
+}
+
+fn expand_into(hkdf: &Hkdf<Sha256>, label: KdfLabel, parts: &[&[u8]], out: &mut [u8; 32]) {
     let mut info = Vec::with_capacity(128);
     label.write_prefix(&mut info);
     for part in parts {
         info.extend_from_slice(part);
     }
-    let mut okm = Zeroizing::new([0u8; 32]);
-    hkdf.expand(&info, okm.as_mut_slice())
+    hkdf.expand(&info, out)
         .expect("32 bytes is below the HKDF output limit");
-    okm
 }
 
 #[cfg(test)]
@@ -73,22 +106,26 @@ mod tests {
             None,
             KdfKeyLabel::Root,
             &KdfContext::new().field(&[9; 16]),
-        );
+        )
+        .expect("derives");
         assert_eq!(sealed::material(&root), &hkdf(None, &[1; 32], &info));
     }
 
     #[test]
     fn salt_label_and_context_all_change_the_key() {
         let context = KdfContext::new().field(b"ctx");
-        let base: SealKey = kdf(&ikm(1), None, SealKeyLabel::DekWrap, &context);
-        let salted: SealKey = kdf(&ikm(1), Some(&[3; 32]), SealKeyLabel::DekWrap, &context);
-        let relabelled: SealKey = kdf(&ikm(1), None, SealKeyLabel::PackKeyWrap, &context);
+        let base: SealKey = kdf(&ikm(1), None, SealKeyLabel::DekWrap, &context).expect("derives");
+        let salted: SealKey =
+            kdf(&ikm(1), Some(&[3; 32]), SealKeyLabel::DekWrap, &context).expect("derives");
+        let relabelled: SealKey =
+            kdf(&ikm(1), None, SealKeyLabel::PackKeyWrap, &context).expect("derives");
         let other: SealKey = kdf(
             &ikm(1),
             None,
             SealKeyLabel::DekWrap,
             &KdfContext::new().field(b"ctY"),
-        );
+        )
+        .expect("derives");
         for derived in [&salted, &relabelled, &other] {
             assert_ne!(
                 sealed::material(&base),
@@ -104,7 +141,8 @@ mod tests {
         info.extend_from_slice(b"crypthix/v0/kdf/root-commit");
         info.extend_from_slice(&[9; 16]);
         let context = KdfContext::new().field(&[9; 16]);
-        let commit: Hash32 = kdf(&ikm(1), None, CommitLabel::RootCommit, &context);
+        let commit: Hash32 =
+            kdf(&ikm(1), None, CommitLabel::RootCommit, &context).expect("derives");
         assert_eq!(commit.as_bytes(), &hkdf(None, &[1; 32], &info));
     }
 

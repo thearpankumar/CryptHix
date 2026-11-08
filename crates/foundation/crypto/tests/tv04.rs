@@ -5,7 +5,7 @@ mod common;
 
 use crypthix_crypto::hash::{self, Hash32};
 use crypthix_crypto::kdf::{self, KdfContext};
-use crypthix_crypto::key::{KdfKey, MacKey, SealKey, ShardNonceKey, XofKey};
+use crypthix_crypto::key::{KdfKey, KeyError, MacKey, SealKey, ShardNonceKey, XofKey};
 use crypthix_crypto::label::XofKeyLabel;
 use crypthix_crypto::label::{AadLabel, CommitLabel, HashLabel, KdfKeyLabel, KdfLabel, SigLabel};
 use crypthix_crypto::label::{DeriveLabel, MacKeyLabel, SealKeyLabel, ShardNonceKeyLabel};
@@ -83,7 +83,8 @@ fn derive<L: DeriveLabel>(
     let ikm = KdfKey::from_bytes(common::input_array(test, "ikm")).expect("non-zero ikm");
     let salt: Option<[u8; 32]> = test["inputs"]["salt"].as_str().map(common::hex_array);
     let context = KdfContext::from_bytes(common::input(test, "context"));
-    Some(bytes(&kdf::kdf(&ikm, salt.as_ref(), label, &context)))
+    let derived = kdf::kdf(&ikm, salt.as_ref(), label, &context).expect("protected memory");
+    Some(bytes(&derived))
 }
 
 fn check_derived_key(test: &Value) {
@@ -127,7 +128,12 @@ fn check_mac(test: &Value) {
 fn check_zero_value(test: &Value) {
     let value = &test["inputs"]["value"];
     let result: Result<(), FormatError> = match common::text(test, "kind") {
-        "key" => KdfKey::from_bytes(common::input_array(test, "value")).map(drop),
+        "key" => KdfKey::from_bytes(common::input_array(test, "value"))
+            .map(drop)
+            .map_err(|error| match error {
+                KeyError::Format(error) => error,
+                other => panic!("{other}"),
+            }),
         "objectId" => ObjectId::try_from_bytes(common::input_array(test, "value")).map(drop),
         "hash" => Hash32::try_from_bytes(common::input_array(test, "value")).map(drop),
         "epoch" => {

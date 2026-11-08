@@ -1,5 +1,7 @@
 //! The macro that defines one label class.
 
+use std::mem;
+
 /// Defines a label enum whose variants map to the full ASCII label strings of one class.
 macro_rules! labels {
     (
@@ -50,10 +52,25 @@ macro_rules! labels {
 
 pub(crate) use labels;
 
-/// Something a label prefix can be written into: a byte vector or a hasher.
+/// Something a label prefix can be written into: a byte vector, a hasher, or the unwritten
+/// rest of a fixed-size buffer.
 pub(crate) trait PrefixSink {
     /// Appends bytes.
     fn put(&mut self, bytes: &[u8]);
+}
+
+/// Writes at the start of the slice and moves it past what was written, so a buffer of exact
+/// size is filled front to back.
+///
+/// # Panics
+///
+/// If the slice is shorter than `bytes`: the caller sized the buffer wrongly.
+impl PrefixSink for &mut [u8] {
+    fn put(&mut self, bytes: &[u8]) {
+        let (head, tail) = mem::take(self).split_at_mut(bytes.len());
+        head.copy_from_slice(bytes);
+        *self = tail;
+    }
 }
 
 impl PrefixSink for Vec<u8> {

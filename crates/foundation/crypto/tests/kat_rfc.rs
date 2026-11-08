@@ -187,10 +187,10 @@ struct Argon {
     tag: String,
 }
 
-#[test]
 /// Runs the `argon2` crate itself: the RFC case needs a secret and associated data, which the
 /// passphrase wrapper never uses. `argon2id::derive` is checked against this same crate with
 /// distinct parameters in its unit tests; no second Argon2id implementation is vendored.
+#[test]
 fn rfc9106_argon2id() {
     for test in tests::<Argon>("external/rfc9106/argon2id.json", 1) {
         assert_eq!(test.version, 0x13);

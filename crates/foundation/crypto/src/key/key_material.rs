@@ -7,13 +7,17 @@ use crate::key::sealed::Sealed;
 /// API (backlog rule 9).
 ///
 /// The trait is sealed, and so are the methods that reach the key bytes: other crates can name
-/// the trait in a bound but cannot read or build a key through it.
+/// the trait in a bound, and even call its supertrait's methods through it, but each of those
+/// takes a token only this crate can name, so they cannot read or build a key through it.
 ///
-/// ```compile_fail
+/// A bound on the trait reaches the sealed methods, but the token they take cannot be named
+/// outside this crate, and no safe public way builds one, not even by inference:
+///
+/// ```compile_fail,E0277
 /// use crypthix_crypto::key::KeyMaterial;
 ///
 /// fn leak<K: KeyMaterial>(key: &K) -> [u8; 32] {
-///     *key.material()
+///     *key.material(Default::default())
 /// }
 /// ```
 pub trait KeyMaterial: Sealed {}

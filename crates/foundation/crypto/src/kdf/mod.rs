@@ -7,19 +7,20 @@
 //!
 //! let kek = KdfKey::random()?;
 //! let context = KdfContext::new().field(&[7u8; 16]).u32be(1);
-//! let dek_wrap: SealKey = kdf::kdf(&kek, None, SealKeyLabel::DekWrap, &context);
-//! # Ok::<(), crypthix_crypto::random::RandomError>(())
+//! let dek_wrap: SealKey = kdf::kdf(&kek, None, SealKeyLabel::DekWrap, &context)?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! The label fixes the output type, so a label cannot derive a key of another type:
 //!
-//! ```compile_fail
+//! ```compile_fail,E0308
 //! use crypthix_crypto::kdf::{self, KdfContext};
 //! use crypthix_crypto::key::{KdfKey, MacKey};
 //! use crypthix_crypto::label::SealKeyLabel;
 //!
-//! let kek = KdfKey::random().unwrap();
-//! let wrong: MacKey = kdf::kdf(&kek, None, SealKeyLabel::DekWrap, &KdfContext::new());
+//! let kek = KdfKey::random()?;
+//! let wrong: MacKey = kdf::kdf(&kek, None, SealKeyLabel::DekWrap, &KdfContext::new())?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 mod derive;

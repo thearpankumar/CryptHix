@@ -4,10 +4,12 @@
 //! nonce [24] ‖ commitment C [32] ‖ ciphertext [len(pt)] ‖ tag [16]     (72 bytes of overhead)
 //! ```
 //!
-//! [`open`] recomputes `C` and compares it in constant time before it checks the tag (FS-28).
-//! Callers see one opaque [`FormatError::Decrypt`](crypthix_types::format_error::FormatError)
-//! for any failure, so there is no oracle; the two inner causes are visible only with the
-//! `vectors` feature, for TV-05.
+//! [`open`](fn@open) recomputes `C` and compares it in constant time before it checks the tag
+//! (FS-28). Callers see one opaque
+//! [`FormatError::Decrypt`](crypthix_types::format_error::FormatError) for any failed check, so
+//! there is no oracle; the two inner causes are visible only with the `vectors` feature, for
+//! TV-05. A plaintext buffer that cannot be had is [`OpenError::Memory`], never `Decrypt`, and
+//! comes only after the commitment held.
 //!
 //! ```
 //! use crypthix_crypto::aad::Aad;
@@ -27,6 +29,7 @@ mod layout;
 mod nonce;
 mod nonce_kind;
 mod open;
+mod open_cause;
 mod open_error;
 mod seal;
 mod seal_error;
@@ -40,6 +43,7 @@ pub use nonce_kind::NonceKind;
 pub use open::open_detailed;
 pub use open::{open, open_key};
 #[cfg(feature = "vectors")]
+pub use open_cause::OpenCause;
 pub use open_error::OpenError;
 #[cfg(feature = "vectors")]
 pub use seal::seal_with_nonce;

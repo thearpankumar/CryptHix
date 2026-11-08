@@ -1,44 +1,58 @@
 //! The macro that defines one 32-byte zeroizing key type.
 
-/// Defines a key newtype over `[u8; 32]` that is wiped on drop and prints no bytes.
+/// Defines a key newtype over a 32-byte slot of protected memory (O1), wiped on drop, that
+/// prints no bytes.
 macro_rules! secret_key {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
-        #[derive(zeroize::ZeroizeOnDrop)]
-        pub struct $name([u8; 32]);
+        pub struct $name(crate::secure_mem::KeySlot);
 
         impl $name {
             /// A new key of 32 bytes straight from the kernel's `getrandom` (FS-01, M-36).
             ///
             /// # Errors
             ///
-            /// [`RandomError`](crate::random::RandomError) if the kernel cannot supply
-            /// randomness.
-            pub fn random() -> Result<Self, crate::random::RandomError> {
-                let mut key = Self([0u8; 32]);
-                crate::random::fill(&mut key.0)?;
-                Ok(key)
+            /// - [`KeyError::Random`](crate::key::KeyError::Random) if the kernel cannot supply
+            ///   randomness.
+            /// - [`KeyError::Memory`](crate::key::KeyError::Memory) if no protected memory is
+            ///   free.
+            pub fn random() -> Result<Self, crate::key::KeyError> {
+                crate::key::sealed::new_random()
             }
 
             /// Wraps known key bytes, for the test-vector runners only.
             ///
             /// # Errors
             ///
-            /// [`FormatError::ZeroValue`](crypthix_types::format_error::FormatError::ZeroValue)
-            /// for an all-zero key (FS-03).
+            /// - [`KeyError::Format`](crate::key::KeyError::Format) with `ZeroValue` for an
+            ///   all-zero key (FS-03).
+            /// - [`KeyError::Memory`](crate::key::KeyError::Memory) if no protected memory is
+            ///   free.
             #[cfg(feature = "vectors")]
-            pub fn from_bytes(
-                bytes: [u8; 32],
-            ) -> Result<Self, crypthix_types::format_error::FormatError> {
+            pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, crate::key::KeyError> {
                 crate::key::check_nonzero::check_nonzero(&bytes)?;
-                Ok(Self(bytes))
+                crate::key::sealed::new_with(|material| {
+                    *material = bytes;
+                    Ok::<(), crate::key::KeyError>(())
+                })
             }
 
             /// A copy of the key bytes, for the test-vector runners only.
+            ///
+            /// # Panics
+            ///
+            /// On Linux, in a child forked without `exec` after the key was made
+            /// ([`secure_mem`](crate::secure_mem#fork)).
             #[cfg(feature = "vectors")]
             #[must_use]
             pub fn to_bytes(&self) -> [u8; 32] {
-                self.0
+                *self.0.bytes()
+            }
+
+            /// The protection the key's memory got.
+            #[must_use]
+            pub fn level(&self) -> crate::secure_mem::Level {
+                self.0.level()
             }
         }
 
@@ -49,12 +63,18 @@ macro_rules! secret_key {
         }
 
         impl crate::key::sealed::Sealed for $name {
-            fn from_material(bytes: [u8; 32], _: crate::key::sealed::Token) -> Self {
-                Self(bytes)
+            fn zeroed(
+                _: crate::key::sealed::Token,
+            ) -> Result<Self, crate::secure_mem::MemError> {
+                crate::secure_mem::take_key_slot().map(Self)
             }
 
             fn material(&self, _: crate::key::sealed::Token) -> &[u8; 32] {
-                &self.0
+                self.0.bytes()
+            }
+
+            fn material_mut(&mut self, _: crate::key::sealed::Token) -> &mut [u8; 32] {
+                self.0.bytes_mut()
             }
         }
 

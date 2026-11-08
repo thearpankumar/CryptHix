@@ -1,7 +1,9 @@
 //! Seal (FS-27).
 
+use chacha20poly1305::aead::inout::InOutBuf;
 use chacha20poly1305::aead::{AeadInOut, KeyInit};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use zeroize::Zeroizing;
 
 use crate::aad::Aad;
 use crate::cx_aead::nonce;
@@ -26,6 +28,11 @@ use crate::random::{self, RandomError};
 ///   not the kind FS-29 gives the label.
 ///
 /// Nothing is sealed on an error.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 pub fn seal(
     key: &SealKey,
     aad: &Aad,
@@ -45,6 +52,11 @@ pub fn seal(
 ///
 /// - [`SealError::Random`] if the kernel cannot supply randomness.
 /// - [`SealError::WrongLabel`] if `aad` does not have a key-wrap label.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` or `key_to_wrap` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 pub fn seal_key(
     key: &SealKey,
     aad: &Aad,
@@ -68,6 +80,11 @@ fn seal_key_drawing(
 }
 
 /// Seals with a given nonce, for the test-vector runners only.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 #[cfg(any(test, feature = "vectors"))]
 #[cfg_attr(
     not(feature = "vectors"),
@@ -87,7 +104,7 @@ fn seal_drawing(
     nonce: NonceKind<'_>,
     draw: impl FnOnce(&mut [u8]) -> Result<(), RandomError>,
 ) -> Result<Vec<u8>, SealError> {
-    if plaintext.len() > MAX_PLAINTEXT_LEN {
+    if too_long(plaintext.len()) {
         return Err(SealError::TooLong);
     }
     // FS-29: shard headers, and only they, get synthetic nonces. Raw vector AADs carry no label.
@@ -100,8 +117,8 @@ fn seal_drawing(
     let a = hash::hash(HashLabel::CxAad, aad.as_bytes());
     let nonce = match nonce {
         NonceKind::Hedged => {
-            let mut rand = [0u8; 32];
-            draw(&mut rand)?;
+            let mut rand = Zeroizing::new([0u8; 32]);
+            draw(rand.as_mut_slice())?;
             nonce::hedged_nonce(key, &a, plaintext, &rand)
         }
         NonceKind::Synthetic(nonce_key) => nonce::synthetic_nonce(nonce_key, &a, plaintext),
@@ -122,16 +139,23 @@ fn seal_with_a(
     let mut out = Vec::with_capacity(OVERHEAD + plaintext.len());
     out.extend_from_slice(nonce);
     out.extend_from_slice(commitment.as_slice());
-    out.extend_from_slice(plaintext);
+    out.resize(NONCE_LEN + COMMITMENT_LEN + plaintext.len(), 0);
+    // Encrypt from the caller's plaintext straight into `out`, so no copy of the plaintext is
+    // ever made outside protected memory.
+    let buffers = InOutBuf::new(plaintext, &mut out[NONCE_LEN + COMMITMENT_LEN..])
+        .expect("`out` was sized to the plaintext");
     let tag = cipher
-        .encrypt_inout_detached(
-            &XNonce::from(*nonce),
-            aad.as_bytes(),
-            (&mut out[NONCE_LEN + COMMITMENT_LEN..]).into(),
-        )
+        .encrypt_inout_detached(&XNonce::from(*nonce), aad.as_bytes(), buffers)
         .expect("MAX_PLAINTEXT_LEN is far below the XChaCha20 limit of 256 GiB");
     out.extend_from_slice(tag.as_slice());
     out
+}
+
+/// Whether `len` bytes of plaintext are more than [`MAX_PLAINTEXT_LEN`]. Never on 32-bit
+/// targets, where the limit is `usize::MAX`; a range rather than `>` says so without a
+/// comparison that is always false there.
+fn too_long(len: usize) -> bool {
+    !(..=MAX_PLAINTEXT_LEN).contains(&len)
 }
 
 /// XChaCha20-Poly1305 under `K_enc = HKDF-Expand(K, kdf/cx-key ‖ nonce ‖ a)`. The cipher wipes
@@ -152,6 +176,19 @@ mod tests {
 
     fn aad() -> Aad {
         Aad::new(AadLabel::BlobData).field(&[9; 16])
+    }
+
+    #[test]
+    fn only_lengths_past_the_maximum_are_too_long() {
+        assert!(!too_long(0));
+        assert!(!too_long(MAX_PLAINTEXT_LEN));
+        assert_eq!(
+            too_long(usize::MAX),
+            cfg!(target_pointer_width = "64"),
+            "32-bit lengths all fit"
+        );
+        #[cfg(target_pointer_width = "64")]
+        assert!(too_long(MAX_PLAINTEXT_LEN + 1));
     }
 
     fn a() -> Hash32 {
