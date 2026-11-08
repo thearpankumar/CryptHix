@@ -149,8 +149,10 @@ fn charge(charged: usize, bytes: usize, limit: usize) -> Option<usize> {
 }
 
 /// What `budget` may still lock in this process right now: its share of the limit less what is
-/// already charged to it. Tests running at the same time may take some of it.
-#[cfg(all(test, target_os = "linux", not(miri)))]
+/// already charged to it. Tests running at the same time may take some of it. `cfg(test)` is an
+/// attribute of its own so cargo-mutants, which looks for it, leaves this test helper alone.
+#[cfg(test)]
+#[cfg(all(target_os = "linux", not(miri)))]
 pub(crate) fn room(budget: Budget) -> usize {
     share(budget, limit(), global::key_lock_reserve())
         .saturating_sub(counter(budget).load(Ordering::Acquire))

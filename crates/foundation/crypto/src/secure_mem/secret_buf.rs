@@ -131,6 +131,7 @@ mod tests {
     fn a_copy_holds_the_bytes() {
         let buf = SecretBuf::try_copy_from(b"abc").expect("three bytes can be had");
         assert_eq!(buf.as_slice(), b"abc");
+        assert_eq!(AsRef::<[u8]>::as_ref(&buf), b"abc");
     }
 
     #[test]

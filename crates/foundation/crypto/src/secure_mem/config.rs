@@ -94,12 +94,8 @@ impl Config {
     /// The most pages all arenas may use together, at least
     /// [`pages_per_arena`](Config::pages_per_arena).
     #[must_use]
-    pub const fn max_pages(&self) -> usize {
-        if self.max_pages < self.pages_per_arena.get() {
-            self.pages_per_arena.get()
-        } else {
-            self.max_pages
-        }
+    pub fn max_pages(&self) -> usize {
+        self.max_pages.max(self.pages_per_arena.get())
     }
 
     /// The most bytes of `RLIMIT_MEMLOCK` a pool with this config can charge: every page up to

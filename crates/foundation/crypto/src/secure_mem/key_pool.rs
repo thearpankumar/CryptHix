@@ -174,8 +174,9 @@ impl KeyPool {
             *reason = Some(refusal.fallback());
         }
         // A build without protected memory refuses every mapped level, so the heap the minimum
-        // skipped is the best there is.
-        if matches!(last_refusal, Some(Refusal::Platform)) && want > Level::Heap {
+        // skipped is the best there is. The heap never refuses with `Platform` and is the last
+        // tier, so a `Platform` refusal last means it was skipped: the minimum is above it.
+        if matches!(last_refusal, Some(Refusal::Platform)) {
             return Err(MemError::BelowMinimum {
                 got: Level::Heap,
                 want,

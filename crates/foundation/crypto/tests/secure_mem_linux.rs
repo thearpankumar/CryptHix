@@ -400,6 +400,45 @@ fn child_with_no_address_space_left() {
     );
 }
 
+/// Runs itself again with a one-page first arena full of keys and the address space then capped
+/// as in [`a_buffer_the_kernel_will_not_map_is_refused_not_put_on_the_heap`], so the kernel
+/// maps no second arena at any level while the heap still has room for one. The next key is
+/// refused with `MapFailed`, not put on the heap below the minimum (which `BelowMinimum` would
+/// report), `status` says the kernel refused it, and once the cap is lifted the next key maps
+/// the second arena.
+#[test]
+fn a_key_arena_the_kernel_will_not_map_is_refused_not_put_on_the_heap() {
+    in_child(
+        "a_key_arena_the_kernel_will_not_map_is_refused_not_put_on_the_heap",
+        child_with_a_full_arena_and_no_address_space_left,
+    );
+}
+
+fn child_with_a_full_arena_and_no_address_space_left() {
+    let per_page = rustix::param::page_size() / 32;
+    secure_mem::init(Config::default().with_pages_per_arena(1).with_max_pages(2))
+        .expect("a one-page arena");
+    let keys: Vec<SealKey> = (0..per_page)
+        .map(|_| SealKey::random().expect("a free slot"))
+        .collect();
+    let unlimited = cap_address_space();
+    let refused = SealKey::random().map(|key| key.level());
+    let after = secure_mem::status();
+    restore_address_space(unlimited);
+    assert_eq!(refused, Err(KeyError::Memory(MemError::MapFailed)));
+    assert_eq!(after.last_failure, Some(MemError::MapFailed));
+    assert_eq!(after.reason, Some(Fallback::KernelRefused));
+    assert_eq!(after.key_slots_total, per_page, "no second arena");
+    assert_eq!(
+        after.key_level,
+        Some(keys[0].level()),
+        "the first arena is unchanged"
+    );
+    let next = SealKey::random().expect("room for a second arena again");
+    assert!(next.level() >= Level::DumpExcluded, "{:?}", next.level());
+    assert_eq!(secure_mem::status().key_slots_total, 2 * per_page);
+}
+
 /// Caps this process's address space two pages above what it already uses, so the kernel maps
 /// nothing more (a mapping of protected memory is at least three pages), after freeing some heap
 /// memory so a small heap allocation still needs no new mapping. Returns the limit to restore.
