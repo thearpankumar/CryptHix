@@ -2,5 +2,5 @@
 
 # `^` on flags with no bit in common is `|`, so these mutants cannot change behaviour.
 exclude_re = [
-    'replace \| with \^ in map_marker$',
+    'replace \| with \^ in (map_secret|anonymous|map_marker)$',
 ]
