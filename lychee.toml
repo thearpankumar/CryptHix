@@ -12,3 +12,7 @@ exclude_loopback = true
 max_retries = 3
 retry_wait_time = 5
 timeout = 30
+
+# A 429 means the site is up but limiting how fast we ask (sentinelone.com does this to CI runners),
+# not that the link is dead, so it counts as reachable alongside lychee's default success codes.
+accept = ["100..=103", "200..=299", "429"]
