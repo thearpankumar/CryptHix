@@ -1,0 +1,48 @@
+name: Fetch a pinned release asset
+description: >-
+  Downloads one asset of a GitHub release through the API (`gh release download`) and checks it
+  against a pinned sha256. The API path keeps working when the public download redirect
+  (github.com/<repo>/releases/download/...) answers 504, and transient failures are retried.
+inputs:
+  repo:
+    description: Repository that publishes the release, as `owner/name`.
+    required: true
+  tag:
+    description: Release tag.
+    required: true
+  asset:
+    description: Exact asset file name.
+    required: true
+  sha256:
+    description: Expected sha256 of the asset.
+    required: true
+outputs:
+  path:
+    description: Absolute path of the verified asset.
+    value: ${{ steps.fetch.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: fetch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ inputs.repo }}
+        TAG: ${{ inputs.tag }}
+        ASSET: ${{ inputs.asset }}
+        SHA256: ${{ inputs.sha256 }}
+      run: |
+        dir="$RUNNER_TEMP/fetch-release"
+        mkdir -p "$dir"
+        for attempt in 1 2 3 4 5; do
+          if gh release download "$TAG" --repo "$REPO" --pattern "$ASSET" --dir "$dir" --clobber; then
+            break
+          fi
+          if [ "$attempt" -eq 5 ]; then
+            echo "::error::could not download $ASSET from $REPO $TAG"
+            exit 1
+          fi
+          sleep $((attempt * 10))
+        done
+        echo "$SHA256  $dir/$ASSET" | sha256sum -c -
+        echo "path=$dir/$ASSET" >> "$GITHUB_OUTPUT"
