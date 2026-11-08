@@ -128,6 +128,10 @@ impl KeyMaterial for SigningKey {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aad::Aad;
+    use crate::cx_aead;
+    use crate::key::SealKey;
+    use crate::label::AadLabel;
 
     #[test]
     fn the_expanded_key_is_the_one_of_the_seed() {
@@ -141,6 +145,18 @@ mod tests {
             key.verifying_key(),
             VerifyingKey::from_dalek(dalek.verifying_key())
         );
+    }
+
+    /// A wrap carries the seed itself, so the key it opens to is the same key.
+    #[test]
+    fn a_wrapped_key_opens_to_the_same_seed() {
+        let wrapping: SealKey = sealed::from_material([1; 32]);
+        let aad = Aad::new(AadLabel::VaultSignKey).field(&[9; 16]);
+        let key: SigningKey = sealed::from_material([3; 32]);
+        let wrap = cx_aead::seal_key(&wrapping, &aad, &key).expect("getrandom works");
+        let opened: SigningKey = cx_aead::open_key(&wrapping, &aad, &wrap).expect("opens");
+        assert_eq!(sealed::material(&opened), &[3; 32]);
+        assert_eq!(opened.verifying_key(), key.verifying_key());
     }
 
     #[test]
