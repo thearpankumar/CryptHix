@@ -279,14 +279,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download lychee
+        id: lychee
+        uses: ./.github/actions/fetch-release
+        with:
+          repo: lycheeverse/lychee
+          tag: lychee-v0.24.2
+          asset: lychee-x86_64-unknown-linux-gnu.tar.gz
+          sha256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
       - name: Install lychee
+        env:
+          ARCHIVE: ${{ steps.lychee.outputs.path }}
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          cd "$RUNNER_TEMP"
-          curl -sSfL -o lychee.tar.gz \
-            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
-          echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
-          tar -xzf lychee.tar.gz --strip-components=1 -C bin lychee-x86_64-unknown-linux-gnu/lychee
+          tar -xzf "$ARCHIVE" --strip-components=1 -C "$RUNNER_TEMP/bin" lychee-x86_64-unknown-linux-gnu/lychee
       # Every tracked Markdown file, with lychee.toml. Relative links and anchors are checked on
       # every PR by `cargo xtask check-docs`; PRs also check the external links of the files
       # they change.

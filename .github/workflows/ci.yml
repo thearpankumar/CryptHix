@@ -101,15 +101,42 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           cache-key: lint
-          tools: typos@1.51.1,zizmor@1.31.1
-      - name: Install actionlint
+      - name: Download actionlint
+        id: actionlint
+        uses: ./.github/actions/fetch-release
+        with:
+          repo: rhysd/actionlint
+          tag: v1.7.12
+          asset: actionlint_1.7.12_linux_amd64.tar.gz
+          sha256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      - name: Download typos
+        id: typos
+        uses: ./.github/actions/fetch-release
+        with:
+          repo: crate-ci/typos
+          tag: v1.51.1
+          asset: typos-v1.51.1-x86_64-unknown-linux-musl.tar.gz
+          sha256: 93c301fd4120ff076e2cc2a6d6a61cab4a4bdb81899287c0938b452e56d1f454
+      - name: Download zizmor
+        id: zizmor
+        uses: ./.github/actions/fetch-release
+        with:
+          repo: zizmorcore/zizmor
+          tag: v1.31.1
+          asset: zizmor-x86_64-unknown-linux-gnu.tar.gz
+          sha256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+      # Lint tools come through the release API, not the public download redirect, which can
+      # answer 504 while the API still works.
+      - name: Install actionlint, typos and zizmor
+        env:
+          ACTIONLINT: ${{ steps.actionlint.outputs.path }}
+          TYPOS: ${{ steps.typos.outputs.path }}
+          ZIZMOR: ${{ steps.zizmor.outputs.path }}
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          cd "$RUNNER_TEMP"
-          curl -sSfL -o actionlint.tar.gz \
-            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
-          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
-          tar -xzf actionlint.tar.gz -C bin actionlint
+          tar -xzf "$ACTIONLINT" -C "$RUNNER_TEMP/bin" actionlint
+          tar -xzf "$TYPOS" -C "$RUNNER_TEMP/bin" ./typos
+          tar -xzf "$ZIZMOR" -C "$RUNNER_TEMP/bin" zizmor
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: cargo xtask ci lint
 
@@ -155,14 +182,20 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Download lychee
+        id: lychee
+        uses: ./.github/actions/fetch-release
+        with:
+          repo: lycheeverse/lychee
+          tag: lychee-v0.24.2
+          asset: lychee-x86_64-unknown-linux-gnu.tar.gz
+          sha256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
       - name: Install lychee
+        env:
+          ARCHIVE: ${{ steps.lychee.outputs.path }}
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          cd "$RUNNER_TEMP"
-          curl -sSfL -o lychee.tar.gz \
-            https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-gnu.tar.gz
-          echo "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a  lychee.tar.gz" | sha256sum -c -
-          tar -xzf lychee.tar.gz --strip-components=1 -C bin lychee-x86_64-unknown-linux-gnu/lychee
+          tar -xzf "$ARCHIVE" --strip-components=1 -C "$RUNNER_TEMP/bin" lychee-x86_64-unknown-linux-gnu/lychee
       # External links in the Markdown files this PR adds or changes; the weekly scheduled run
       # checks every file. File names go through xargs, never through a shell.
       - name: Check external links
