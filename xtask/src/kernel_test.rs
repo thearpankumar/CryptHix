@@ -122,6 +122,11 @@ fn run_in_kernel(options: &Options) -> Result<(), String> {
         .join("target")
         .join("kernel-test")
         .join("crypthix-crypto.tar.zst");
+    if let Some(dir) = archive.parent() {
+        // nextest writes the archive atomically beside its final path, so the folder must exist.
+        std::fs::create_dir_all(dir)
+            .map_err(|error| format!("creating {}: {error}", dir.display()))?;
+    }
     println!("kernel-test: building the crypthix-crypto tests");
     run_status(
         Command::new(cargo())
