@@ -87,6 +87,9 @@ deny = [
     "aes", "aes-gcm-siv", "aes-siv", "blake2b_simd", "boring", "crypto_box", "crypto_secretbox", "ecdsa",
     "ed25519-compact", "ed25519-zebra", "k256", "libsodium-sys", "md-5", "openssl-sys", "orion", "p256",
     "pbkdf2", "rsa", "rust-argon2", "scrypt", "sha1", "sha3", "sodiumoxide", "xsalsa20poly1305",
+    # Keys and plaintext live in crypthix-crypto::secure_mem (O1, T-31), so no second allocator
+    # for secrets: memsec ignores mlock failures, the others lack memfd_secret or are unmaintained.
+    "clear_on_drop", "memsec", "memsecurity", "secmem-alloc", "secrets",
 ]
 
 # Features that would weaken strict Ed25519 verification (FS-14).
