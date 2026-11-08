@@ -150,11 +150,21 @@ enum After {
 
 /// Forks a child that lowers its `RLIMIT_MEMLOCK` to `limit` bytes if given, maps `pages`
 /// secret pages and faults them in, and sends the outcome back through a pipe. Returns the
-/// child and the outcome once it has reported.
+/// child and the outcome once it has reported. The child dies with the thread that forked it.
 fn fork_mapper(pages: usize, limit: Option<u64>, after: After) -> (Pid, Outcome) {
     let (mut reader, mut writer) = io::pipe().expect("a pipe");
+    let parent = process::getpid();
     let Some(child) = fork() else {
         run_child(move || {
+            // A parent that crashes never drops its `Holder`, and a holder left running keeps
+            // the output pipes the parent inherited open, so a test reading them would wait
+            // forever: the kernel kills the mapper with its parent instead (PR_SET_PDEATHSIG,
+            // prctl(2)), or the mapper ends itself if the parent died before that was set.
+            process::set_parent_process_death_signal(Some(Signal::KILL))
+                .expect("a parent-death signal");
+            if process::getppid() != Some(parent) {
+                return;
+            }
             drop(reader);
             if let Some(bytes) = limit {
                 set_memlock_limit(bytes);
