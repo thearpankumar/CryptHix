@@ -11,6 +11,8 @@
 //! - `cargo xtask check-docs` checks links, anchors and cross-reference IDs in the docs.
 //! - `cargo xtask check-vendored` checks the vendored vectors against their SOURCE blob IDs.
 //! - `cargo xtask check-commits <base>` checks the messages of the commits after `base`.
+//! - `cargo xtask kernel-test --kernel <vmlinuz> [--expect <model>]` runs the `crypthix-crypto`
+//!   tests inside another Linux kernel (see `kernel_test.rs`).
 
 // Printing a report is this tool's job; the print lints target library code.
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -19,6 +21,7 @@ mod ci;
 mod commits;
 mod docs_check;
 mod features;
+mod kernel_test;
 mod layers;
 mod pre_commit;
 mod process;
@@ -54,6 +57,7 @@ fn main() -> ExitCode {
             [base] => report(commits::check(base)),
             _ => usage(),
         },
+        "kernel-test" => report(kernel_test::run(rest)),
         _ => usage(),
     }
 }
@@ -61,7 +65,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!(
         "usage: cargo xtask <check-layers | check-features | pre-commit | install-hooks | vectors | test-extra \
-         | fuzz | ci | check-docs | check-vendored | check-commits>"
+         | fuzz | ci | check-docs | check-vendored | check-commits | kernel-test>"
     );
     ExitCode::FAILURE
 }
