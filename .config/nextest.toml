@@ -1,4 +1,52 @@
-# cargo-nextest settings. CI selects the `ci` profile with NEXTEST_PROFILE=ci.
+# cargo-nextest settings. CI selects the `ci` profile with NEXTEST_PROFILE=ci; it inherits the
+# overrides of the default profile below (https://nexte.st/docs/configuration/per-test-overrides/).
+
+# Tests that give a key arena secret memory under a `RLIMIT_MEMLOCK` of a few pages run alone,
+# and so do the tests that keep a holder process of secret pages (the accounting probe and the
+# fault-time refusal test). Kernels with the CVE-2026-93243 fix charge secret pages to the user,
+# not the process (`secretmem_account_folio` adds them to `user->locked_vm`, mm/secretmem.c),
+# so another test process holding secret memory at the same time could fill such a limit.
+# `threads-required = "num-test-threads"` takes every test thread, which makes a test mutually
+# exclusive with all others (https://nexte.st/docs/configuration/threads-required/); a test
+# group with `max-threads = 1` would not do: it only serialises the tests in the group, which
+# still run beside the rest (https://nexte.st/docs/configuration/test-groups/). Nothing here
+# stops another program of the same user that uses secret memory; the tests skip, or fail under
+# CRYPTHIX_REQUIRE_SECRETMEM=1, when one fills the limit.
+[[profile.default.overrides]]
+filter = """
+binary_id(crypthix-crypto::secure_mem_linux) & (
+    test(=a_secret_arena_fits_a_limit_of_its_data_and_guard_pages)
+    | test(=a_forked_child_gets_the_levels_its_own_limit_allows)
+    | test(=a_reserve_larger_than_the_default_is_kept_from_buffers)
+    | test(=a_secret_arena_refused_at_fault_time_falls_back_to_locked)
+    | test(=secret_memory_accounting_model)
+)
+"""
+threads-required = "num-test-threads"
+
+# Tests that skip a check the system cannot run say so on standard error and pass; their output
+# is shown at the end of the run, passed or not, so a skip is never mistaken for a full pass.
+# CI sets CRYPTHIX_REQUIRE_SECRETMEM=1, which turns those skips into failures.
+[[profile.default.overrides]]
+filter = """
+(binary_id(crypthix-crypto) & test(/^secure_mem::region::region::tests::(\
+regions_are_wiped_before_they_are_freed\
+|secret_mappings_charge_their_guard_pages_and_locked_ones_only_data\
+|secret_regions_are_faulted_in_when_they_are_made\
+|mapped_levels_are_out_of_dumps_and_forks_and_locked_when_they_say_so\
+|locked_memory_is_locked_where_the_limit_has_room\
+|secret_pages_cannot_be_read_through_proc_mem_but_dump_excluded_ones_can\
+|secret_pages_cannot_be_read_by_process_vm_readv_but_dump_excluded_ones_can\
+)$/))
+| (binary_id(crypthix-crypto::secure_mem_linux) & (
+    test(=keys_get_secret_memory_where_the_kernel_has_it)
+    | test(=a_secret_arena_fits_a_limit_of_its_data_and_guard_pages)
+    | test(=a_forked_child_gets_the_levels_its_own_limit_allows)
+    | test(=a_reserve_larger_than_the_default_is_kept_from_buffers)
+    | test(=a_secret_arena_refused_at_fault_time_falls_back_to_locked)
+))
+"""
+success-output = "final"
 
 [profile.ci]
 # Report every failing test, not just the first.
