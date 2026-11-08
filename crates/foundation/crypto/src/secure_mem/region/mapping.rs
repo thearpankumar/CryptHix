@@ -193,25 +193,30 @@ impl Mapping {
     ///
     /// [vdso]: https://sourceware.org/pipermail/libc-alpha/2024-September/159978.html
     fn fault_in(&self, len: usize) -> Result<(), Refusal> {
+        self.fault_in_with(len, write_random_byte)
+    }
+
+    /// [`fault_in`](Self::fault_in) with `write` standing in for the system call, so tests can
+    /// interrupt it.
+    fn fault_in_with(
+        &self,
+        len: usize,
+        write: unsafe fn(*mut u8) -> io::Result<()>,
+    ) -> Result<(), Refusal> {
         for offset in (0..len).step_by(Region::page_size()) {
             // SAFETY: `offset` is below `len`, so the byte is inside the data pages.
             let byte = unsafe { self.data().add(offset) };
-            // `getrandom(2)` takes `unsigned int` flags; none are needed.
-            let flags: libc::c_uint = 0;
             loop {
-                // SAFETY: the system call writes at most one byte, at `byte`, which lies in
-                // this mapping and is referred to by nothing else. The kernel writes it, so
-                // an unbacked page makes the call fail with `EFAULT`; it cannot fault this
-                // process.
-                let filled = unsafe { libc::syscall(libc::SYS_getrandom, byte, 1_usize, flags) };
-                match filled {
-                    1 => break,
-                    -1 => match io::Error::last_os_error().raw_os_error() {
+                // SAFETY: `byte` lies in this mapping and is referred to by nothing else.
+                match unsafe { write(byte) } {
+                    Ok(()) => break,
+                    // `getrandom(2)` blocks until the kernel's generator is ready, and a signal
+                    // handler can interrupt that wait.
+                    Err(error) => match error.raw_os_error() {
                         Some(libc::EINTR) => {}
                         Some(libc::EFAULT) => return Err(Refusal::LockLimit),
                         _ => return Err(Refusal::Kernel),
                     },
-                    _ => return Err(Refusal::Kernel),
                 }
             }
             // SAFETY: the call above faulted the page in, and secret and anonymous pages
@@ -252,6 +257,25 @@ impl Drop for Mapping {
     fn drop(&mut self) {
         // Nothing is charged yet, so the budget named is never touched.
         unmap(self.base, self.total, 0, Budget::Keys);
+    }
+}
+
+/// Has the raw `getrandom(2)` system call write one byte at `byte`, which the kernel copies
+/// in, so an unbacked page fails with `EFAULT` instead of faulting this process.
+///
+/// # Safety
+///
+/// `byte` must lie in a mapping of this process that nothing else refers to.
+unsafe fn write_random_byte(byte: *mut u8) -> io::Result<()> {
+    // `getrandom(2)` takes `unsigned int` flags; none are needed.
+    let flags: libc::c_uint = 0;
+    // SAFETY: the system call writes at most one byte, at `byte`, which the caller vouches
+    // for.
+    let filled = unsafe { libc::syscall(libc::SYS_getrandom, byte, 1_usize, flags) };
+    match filled {
+        1 => Ok(()),
+        -1 => Err(io::Error::last_os_error()),
+        _ => Err(io::Error::other("getrandom wrote other than one byte")),
     }
 }
 
@@ -321,21 +345,9 @@ mod tests {
     /// charge at fault time.
     #[test]
     fn faulting_in_an_unbacked_page_is_a_lock_limit_refusal_not_a_signal() {
-        use rustix::mm::{self, MapFlags, MprotectFlags, ProtFlags};
-
         let page = Region::page_size();
-        let (len, total) = (2 * page, 4 * page);
-        // SAFETY: a new private anonymous mapping at an address the kernel picks.
-        let base = unsafe {
-            mm::mmap_anonymous(
-                std::ptr::null_mut(),
-                total,
-                ProtFlags::READ | ProtFlags::WRITE,
-                MapFlags::PRIVATE,
-            )
-        }
-        .expect("anonymous mappings work");
-        let mapping = Mapping::new(base, total).expect("a non-null mapping");
+        let len = 2 * page;
+        let mapping = anonymous_mapping(4 * page);
         mapping.guard(len).expect("guards can be set");
         // SAFETY: the second data page lies inside the mapping, which only `mapping` owns.
         unsafe {
@@ -353,5 +365,61 @@ mod tests {
         // SAFETY: the first data page is readable, faulted in above.
         let probe = unsafe { mapping.data().read() };
         assert_eq!(probe, 0, "the probe byte is zeroed again");
+    }
+
+    /// A system call interrupted by a signal is made again, not taken for a refusal.
+    #[test]
+    fn an_interrupted_fault_in_is_retried() {
+        std::thread_local! {
+            static INTERRUPTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+        /// Fails with `EINTR` the first time on this thread, then writes the byte.
+        unsafe fn interrupted_once(byte: *mut u8) -> io::Result<()> {
+            if INTERRUPTED.replace(true) {
+                // SAFETY: passed on from `fault_in_with`, which vouches for `byte`.
+                unsafe { write_random_byte(byte) }
+            } else {
+                Err(io::Error::from_raw_os_error(libc::EINTR))
+            }
+        }
+
+        let page = Region::page_size();
+        let mapping = anonymous_mapping(3 * page);
+        assert_eq!(mapping.fault_in_with(page, interrupted_once), Ok(()));
+        assert!(INTERRUPTED.get(), "the stand-in was never called");
+    }
+
+    /// A mapping dropped before it becomes a region, as when setting it up fails, is unmapped.
+    #[test]
+    fn a_mapping_that_never_becomes_a_region_is_unmapped_when_dropped() {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let marker = [0xA5_u8; 16];
+        let mapping = anonymous_mapping(Region::page_size());
+        let address = mapping.base.as_ptr().addr();
+        // SAFETY: the first bytes of a new read-write mapping that only `mapping` owns.
+        unsafe { mapping.base.as_ptr().cast::<[u8; 16]>().write(marker) };
+        drop(mapping);
+        // Another thread may map the freed range at once, but not with the marker in it.
+        let mut mem = std::fs::File::open("/proc/self/mem").expect("procfs is mounted");
+        mem.seek(SeekFrom::Start(address as u64)).expect("seek");
+        let mut read = [0_u8; 16];
+        let still_mapped = mem.read_exact(&mut read).is_ok() && read == marker;
+        assert!(!still_mapped, "the dropped mapping is still there");
+    }
+
+    /// A new private anonymous read-write mapping of `total` bytes.
+    fn anonymous_mapping(total: usize) -> Mapping {
+        // SAFETY: a new private anonymous mapping at an address the kernel picks.
+        let base = unsafe {
+            mm::mmap_anonymous(
+                ptr::null_mut(),
+                total,
+                ProtFlags::READ | ProtFlags::WRITE,
+                MapFlags::PRIVATE,
+            )
+        }
+        .expect("anonymous mappings work");
+        Mapping::new(base, total).expect("a non-null mapping")
     }
 }
