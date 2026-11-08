@@ -4,6 +4,7 @@
     reason = "mapping and advising the marker page has no safe interface"
 )]
 
+use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::thread;
@@ -63,7 +64,8 @@ fn no_marker() -> *mut AtomicU64 {
 /// The thread that swaps 0 for [`CLAIMED`] clears the inherited state (`forget`) before it
 /// publishes the generation, so no thread charges a budget or records a level in this process
 /// before that. Others wait the few stores it takes. A fork while it holds the claim does not
-/// leave it stuck: the child's marker is zero again.
+/// leave it stuck: the child's marker is zero again; nor does a panic before it publishes:
+/// [`Claim`] gives the marker back as 0.
 fn take_generation(marker: &AtomicU64, latest: &AtomicU64, forget: fn()) -> u64 {
     loop {
         match marker.load(Ordering::Acquire) {
@@ -72,17 +74,37 @@ fn take_generation(marker: &AtomicU64, latest: &AtomicU64, forget: fn()) -> u64 
                     .compare_exchange(0, CLAIMED, Ordering::Acquire, Ordering::Acquire)
                     .is_ok()
                 {
+                    let claim = Claim(marker);
                     forget();
                     let next = latest.load(Ordering::Acquire) + 1;
                     // Before the marker, so a child forked in between still goes above it.
                     latest.store(next, Ordering::Release);
-                    marker.store(next, Ordering::Release);
+                    claim.publish(next);
                     return next;
                 }
             }
             CLAIMED => thread::yield_now(),
             generation => return generation,
         }
+    }
+}
+
+/// A marker that holds [`CLAIMED`] until [`Claim::publish`] stores the generation. A claimant
+/// that unwinds before then gives the marker back as 0, so the next thread takes the claim
+/// itself, and meets the same panic, instead of waiting for a generation that never comes, much
+/// as `std::sync::Once` poisons its state when its closure panics.
+struct Claim<'marker>(&'marker AtomicU64);
+
+impl Claim<'_> {
+    fn publish(self, generation: u64) {
+        self.0.store(generation, Ordering::Release);
+        mem::forget(self);
+    }
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.0.store(0, Ordering::Release);
     }
 }
 
@@ -163,6 +185,23 @@ mod tests {
         marker.store(0, Ordering::Release);
         assert_eq!(take_generation(&marker, &latest, clear), 43);
         assert_eq!(CLEARED.load(Ordering::Acquire), 2);
+    }
+
+    /// A claimant that panics before it publishes gives the marker back, so the next caller
+    /// takes the generation itself instead of waiting for it forever.
+    #[test]
+    fn a_claimant_that_panics_gives_the_marker_back() {
+        fn panics() {
+            panic!("the inherited state cannot be cleared");
+        }
+        fn clear() {}
+        let (marker, latest) = (AtomicU64::new(0), AtomicU64::new(7));
+        thread::scope(|scope| {
+            let claimant = scope.spawn(|| take_generation(&marker, &latest, panics));
+            assert!(claimant.join().is_err(), "the claimant panicked");
+        });
+        assert_eq!(marker.load(Ordering::Acquire), 0, "the claim is given back");
+        assert_eq!(take_generation(&marker, &latest, clear), 8);
     }
 
     fn no_page() -> Option<*mut AtomicU64> {
