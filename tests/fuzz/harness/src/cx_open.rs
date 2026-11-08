@@ -6,7 +6,7 @@
 //! commitment for the nonce and commitment, the tag for the ciphertext and tag.
 
 use crypthix_crypto::aad::Aad;
-use crypthix_crypto::cx_aead::{self, COMMITMENT_LEN, NONCE_LEN, OVERHEAD, OpenError};
+use crypthix_crypto::cx_aead::{self, COMMITMENT_LEN, NONCE_LEN, OVERHEAD, OpenCause};
 use crypthix_crypto::key::SealKey;
 use crypthix_crypto::label::AadLabel;
 
@@ -15,20 +15,23 @@ use crypthix_crypto::label::AadLabel;
 ///
 /// # Panics
 ///
-/// If arbitrary bytes open, a length error is misreported, a seal does not open to its
-/// plaintext, or a flipped byte is caught by the wrong check or not at all.
+/// If arbitrary bytes open or pass the commitment, a length error is misreported, a seal does
+/// not open to its plaintext, or a flipped byte is caught by the wrong check or not at all.
 pub fn cx_open(data: &[u8]) {
     let key = SealKey::from_bytes([7; 32]).expect("non-zero key");
     let aad = Aad::new(AadLabel::BlobData).field(&[1; 16]);
     match cx_aead::open_detailed(&key, &aad, data) {
         Ok(_) => panic!("random bytes opened: a forgery or a broken commitment check"),
-        Err(OpenError::Truncated) => assert!(data.len() < OVERHEAD, "Truncated at {}", data.len()),
-        Err(OpenError::ZeroNonce) => {
+        Err(OpenCause::Truncated) => assert!(data.len() < OVERHEAD, "Truncated at {}", data.len()),
+        Err(OpenCause::ZeroNonce) => {
             assert_eq!(
                 data[..NONCE_LEN],
                 [0; NONCE_LEN],
                 "ZeroNonce for a non-zero nonce"
             );
+        }
+        Err(OpenCause::Memory(error)) => {
+            panic!("random bytes passed the commitment and needed a plaintext buffer: {error}")
         }
         Err(_) => assert!(
             data.len() >= OVERHEAD,
@@ -58,9 +61,9 @@ pub fn cx_open(data: &[u8]) {
     let mut tampered = sealed;
     tampered[index] ^= mask;
     let expected = if index < NONCE_LEN + COMMITMENT_LEN {
-        OpenError::Commitment
+        OpenCause::Commitment
     } else {
-        OpenError::AeadTag
+        OpenCause::AeadTag
     };
     let result = cx_aead::open_detailed(&key, &aad, &tampered).err();
     assert_eq!(

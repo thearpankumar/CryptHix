@@ -10,6 +10,11 @@ use crate::mac::Mac;
 
 /// The hedged nonce `MAC(K_n, rand ‖ a ‖ pt)[..24]`, where
 /// `K_n = HKDF-Expand(K, u8 len ‖ "crypthix/v0/kdf/cx-nonce", 32)` and `a = H(hash/cx-aad, AAD)`.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 #[cfg_attr(
     not(feature = "vectors"),
     expect(unreachable_pub, reason = "public only with `vectors`, for TV-05")
@@ -23,6 +28,11 @@ pub fn hedged_nonce(key: &SealKey, a: &Hash32, plaintext: &[u8], rand: &[u8; 32]
 }
 
 /// The synthetic nonce `MAC(K_shn, a ‖ pt)[..24]`.
+///
+/// # Panics
+///
+/// On Linux, in a child forked without `exec` after `nonce_key` was made
+/// ([`secure_mem`](crate::secure_mem#fork)).
 #[cfg_attr(
     not(feature = "vectors"),
     expect(unreachable_pub, reason = "public only with `vectors`, for TV-05")

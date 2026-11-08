@@ -5,8 +5,8 @@ use crypthix_types::id::KeyId;
 
 use crate::hash;
 use crate::label::{HashLabel, SigLabel};
-use crate::sign::Signature;
 use crate::sign::sig_input;
+use crate::sign::{Signature, VerifyError};
 
 /// An Ed25519 public key that passed the checks of FS-14: canonically encoded and in the
 /// prime-order subgroup, so it has neither a small order nor a torsion component.
@@ -53,20 +53,25 @@ impl VerifyingKey {
     /// Verifies a signature made by [`SigningKey::sign`](crate::sign::SigningKey::sign) with the
     /// same `label`, `ctx` and `body` (FS-13, FS-14).
     ///
+    /// The body may be plaintext, so the signature input is built in a
+    /// [`SecretBuf`](crate::secure_mem::SecretBuf), as for signing.
+    ///
     /// # Errors
     ///
-    /// [`FormatError::Signature`] if the signature is invalid, malleable or not canonical.
+    /// - [`VerifyError::Format`] with [`FormatError::Signature`] if the signature is invalid,
+    ///   malleable or not canonical.
+    /// - [`VerifyError::Memory`] if no buffer for the signature input can be had, as for
+    ///   [`SigningKey::sign`](crate::sign::SigningKey::sign). The signature was not checked, so
+    ///   this is never reported as `Signature`.
     pub fn verify(
         &self,
         label: SigLabel,
         ctx: &[u8; 16],
         body: &[u8],
         signature: &Signature,
-    ) -> Result<(), FormatError> {
-        self.verify_message(
-            &sig_input::sig_input(label, ctx, &self.key_id(), body),
-            signature,
-        )
+    ) -> Result<(), VerifyError> {
+        let input = sig_input::sig_input(label, ctx, &self.key_id(), body)?;
+        Ok(self.verify_message(&input, signature)?)
     }
 
     /// Verifies a signature over a raw message with the same strict rules as [`Self::verify`],
@@ -156,7 +161,9 @@ mod tests {
     fn every_input_field_is_bound() {
         let signer = signer();
         let public = signer.verifying_key();
-        let signature = signer.sign(SigLabel::Manifest, &[1; 16], b"body");
+        let signature = signer
+            .sign(SigLabel::Manifest, &[1; 16], b"body")
+            .expect("signs");
         assert!(
             public
                 .verify(SigLabel::Manifest, &[1; 16], b"body", &signature)
@@ -171,14 +178,14 @@ mod tests {
                 .verify(SigLabel::Manifest, &[1; 16], b"body", &signature),
         ];
         for failure in failures {
-            assert_eq!(failure, Err(FormatError::Signature));
+            assert_eq!(failure, Err(VerifyError::Format(FormatError::Signature)));
         }
     }
 
     #[test]
     fn s_at_or_above_the_group_order_fails() {
         let signer = signer();
-        let signature = signer.sign(SigLabel::Root, &[0; 16], b"x");
+        let signature = signer.sign(SigLabel::Root, &[0; 16], b"x").expect("signs");
         let mut bytes = *signature.as_bytes();
         bytes[63] |= 0xf0;
         let result = signer.verifying_key().verify(
@@ -187,6 +194,6 @@ mod tests {
             b"x",
             &Signature::from_bytes(bytes),
         );
-        assert_eq!(result, Err(FormatError::Signature));
+        assert_eq!(result, Err(VerifyError::Format(FormatError::Signature)));
     }
 }

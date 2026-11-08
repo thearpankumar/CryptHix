@@ -7,6 +7,7 @@ use subtle::ConstantTimeEq;
 use crypthix_types::format_error::FormatError;
 
 use crate::key::sealed::{Sealed, Token};
+use crate::secure_mem::MemError;
 
 /// A 32-byte output of `H`, `MAC` or a commitment.
 ///
@@ -63,12 +64,17 @@ impl Eq for Hash32 {}
 
 /// `root_commit` is the one KDF output that is a public value, not a key (FS-38, FS-43).
 impl Sealed for Hash32 {
-    fn from_material(bytes: [u8; 32], _: Token) -> Self {
-        Self(bytes)
+    /// A hash is public, so it needs no protected memory.
+    fn zeroed(_: Token) -> Result<Self, MemError> {
+        Ok(Self([0; 32]))
     }
 
     fn material(&self, _: Token) -> &[u8; 32] {
         &self.0
+    }
+
+    fn material_mut(&mut self, _: Token) -> &mut [u8; 32] {
+        &mut self.0
     }
 }
 
