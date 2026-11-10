@@ -4,12 +4,14 @@
 //! Every output comes from this crate's own code: the one-byte-a-time chunker of [`cdc`], the
 //! Padmé of [`padme`], the inner plaintexts of [`inner`], hand-built zstd frames and the
 //! section 7 primitives of [`cx`]. Only the encoder frames come from zstd itself (`zstd-safe`,
-//! the version in the header): they are inputs to decompression, which any version must accept,
-//! and the expected output of the encoder groups, which only the pinned version must match.
+//! the version in the header): they are inputs to decompression, which gives the results FS-53
+//! defines through libzstd 1.5.7, and the expected output of the encoder groups, which only the
+//! pinned version must match.
 //! Inputs too large for hex are given as `dataKey` and `length`, the first `length` bytes of the
 //! keyed BLAKE3 XOF under `dataKey` over the empty input, as `pattern` and `length`, the
 //! pattern repeated to `length` bytes, or as `zeros`, a run of zero bytes. A frame with a run of
-//! more than 1,024 zero bytes is given as `frameHead`, `frameZeros` zero bytes and `frameTail`.
+//! more than 1,024 zero bytes is given as `frameHead`, `frameZeros` zero bytes and `frameTail`,
+//! and an all-zero expected plaintext of more than 1,024 bytes as `plaintextZeros`, its length.
 
 use crypthix_crypto::test_rng::Stream;
 
@@ -138,7 +140,7 @@ fn chunk_edges(
 ) -> Vec<Edge> {
     use cdc::{AVG, MASK_L, MASK_S, MAX, MIN};
     let mut stream = Stream::new(seed, "chunking-edges");
-    let bases: [[u8; 32]; 9] = std::array::from_fn(|_| stream.bytes());
+    let bases: [[u8; 32]; 10] = std::array::from_fn(|_| stream.bytes());
     let matches = |hash: u64, mask: u64| hash & mask == 0;
     let mut edges = Vec::new();
 
@@ -260,7 +262,7 @@ fn chunk_edges(
         "a cut at strict_end - 1"
     );
     edges.push((
-        "a strict match at strict_end - 1, the last position tested: a one-byte last chunk",
+        "a strict match at 2⌊n/2⌋ − 1, the last position tested: a one-byte last chunk",
         *chunker_seed,
         *gear,
         data,
@@ -280,6 +282,29 @@ fn chunk_edges(
         *chunker_seed,
         *gear,
         Big::Pattern(pattern, len),
+    ));
+
+    // Longer than AVG and shorter than MAX, so both masks are used and end = n, with no
+    // position matching either: the whole file is one chunk. Checked here position by
+    // position from the hash of the window before it, not only through the chunker.
+    let len = AVG + MIN;
+    let key = search(&bases[9], "file with no match below its length", |key| {
+        (cdc::lengths(gear, &xof(&key, len)) == [len]).then_some(key)
+    });
+    let bytes = xof(&key, len);
+    for position in MIN..(len & !1) {
+        let mask = if position < AVG { MASK_S } else { MASK_L };
+        let window = &bytes[position.saturating_sub(63).max(MIN)..=position];
+        assert!(
+            !matches(cdc::hash(gear, window), mask),
+            "a match at {position}"
+        );
+    }
+    edges.push((
+        "320 KiB with no position matching under either mask: one chunk of the whole file, shorter than the maximum",
+        *chunker_seed,
+        *gear,
+        Big::Stream(key, len),
     ));
     edges
 }
@@ -679,6 +704,7 @@ fn decompress_tests() -> Vec<TestCase> {
     };
     let skippable = zstd_frame::skippable(b"skip");
     let rle = zstd_frame::rle_frame(b'a', 300);
+    let rle_head = rle.clone();
     let wide_rle = zstd_frame::frame(
         &Header {
             fcs_flag: Some(2),
@@ -695,18 +721,8 @@ fn decompress_tests() -> Vec<TestCase> {
     let reserved = zstd_frame::frame(&Header::declaring(5), &[Block::Reserved(b"hello".to_vec())]);
     let block_zeros = vec![0u8; zstd_frame::MAX_BLOCK];
     let max_block = zstd_frame::raw_frame(&block_zeros);
-    // libzstd up to 1.5.2 refused a compressed block of exactly 128 KiB (zstd's
-    // decompressor_errata.md); its encoder never writes one, so the block is built by hand,
-    // with a window of 2^17 bytes, since a block may be no larger than the window.
-    let literals = vec![0u8; zstd_frame::MAX_BLOCK - 4];
-    let max_compressed = zstd_frame::frame(
-        &Header {
-            single_segment: false,
-            window: Header::window_of(17),
-            ..Header::declaring(literals.len() as u64)
-        },
-        &[Block::Compressed(zstd_frame::literals_only(&literals))],
-    );
+    let over_block = vec![0u8; zstd_frame::MAX_BLOCK + 1];
+    let rle_longer = zstd_frame::frame(&Header::declaring(5), &[Block::Rle(b'a', 6)]);
 
     #[rustfmt::skip]
     let cases: Vec<FrameCase> = vec![
@@ -714,9 +730,8 @@ fn decompress_tests() -> Vec<TestCase> {
         ("a raw block of 5 bytes, one-byte content size", "FrameOk", hello.clone(), 5, ok(b"hello")),
         ("an empty raw block, content size 0", "FrameOk", zstd_frame::raw_frame(b""), 0, ok(b"")),
         ("an RLE block of 300 bytes, two-byte content size", "FrameOk", rle, 300, ok(&[b'a'; 300])),
-        ("a window of exactly 2^20 bytes", "FrameOk", windowed(w20), 5, ok(b"hello")),
         ("a raw block of exactly 128 KiB, the largest block", "FrameOk", max_block, zstd_frame::MAX_BLOCK, ok(&block_zeros)),
-        ("a compressed block of exactly 128 KiB: raw literals and no sequences", "FrameOk", max_compressed, literals.len(), ok(&literals)),
+        ("a compressed block of exactly 128 KiB (raw literals, no sequences), then a raw block of 4 bytes", "FrameOk", zstd_frame::max_compressed_block(), zstd_frame::MAX_BLOCK, ok(&block_zeros)),
         ("plain_len 2^20: eight RLE blocks of zeros", "PlainLenCap", zstd_frame::rle_frame(0, MIB), MIB, ok(&zeros)),
         ("plain_len 2^20 + 1 is refused before decoding", "PlainLenCap", one_over, MIB + 1, None),
         ("plain_len one below the declared size", "FrameRejected", hello.clone(), 4, None),
@@ -732,14 +747,20 @@ fn decompress_tests() -> Vec<TestCase> {
         ("a four-byte content size for 5 bytes, which libzstd reads", "FrameRejected", bent(|header| header.fcs_flag = Some(2)), 5, None),
         ("an eight-byte content size for 5 bytes, which libzstd reads", "FrameRejected", bent(|header| header.fcs_flag = Some(3)), 5, None),
         ("a four-byte content size for 300 bytes, which libzstd reads", "FrameRejected", wide_rle, 300, None),
-        ("a window of 2^21 bytes", "FrameRejected", windowed(Header::window_of(21)), 5, None),
-        ("a window of 2^20 + 2^17 bytes", "FrameRejected", windowed(w20 | 1), 5, None),
+        ("a window descriptor of 2^20 bytes instead of a single segment, which libzstd decodes", "FrameRejected", windowed(w20), 5, None),
+        ("a window descriptor of 2^21 bytes", "FrameRejected", windowed(Header::window_of(21)), 5, None),
+        ("one RLE block of 2^20 zeros, over the 128 KiB block maximum, which libzstd decodes in one pass", "BlockSize", zstd_frame::one_rle_block(MIB), MIB, None),
+        ("one raw block of 128 KiB + 1 bytes, which libzstd decodes in one pass", "BlockSize", zstd_frame::raw_frame_one_block(&over_block), zstd_frame::MAX_BLOCK + 1, None),
+        ("an RLE block of 6 bytes in a frame of 5, larger than the window", "BlockSize", rle_longer, 5, None),
         ("a skippable frame alone", "FrameRejected", skippable.clone(), 0, None),
         ("a skippable frame before the frame", "FrameRejected", [skippable.as_slice(), &hello].concat(), 5, None),
         ("a skippable frame after the frame", "FrameRejected", [hello.as_slice(), &skippable].concat(), 5, None),
         ("two frames", "FrameRejected", [zstd_frame::raw_frame(&b"hello"[..3]), zstd_frame::raw_frame(&b"hello"[3..])].concat(), 3, None),
         ("a trailing byte", "FrameRejected", [hello.as_slice(), &[0]].concat(), 5, None),
         ("the last byte cut off", "FrameRejected", hello[..hello.len() - 1].to_vec(), 5, None),
+        ("the magic number and the descriptor only", "FrameRejected", hello[..5].to_vec(), 5, None),
+        ("a two-byte content size cut off after its first byte", "FrameRejected", rle_head[..6].to_vec(), 300, None),
+        ("a block header cut off after two bytes", "FrameRejected", hello[..8].to_vec(), 5, None),
         ("a wrong magic number", "FrameRejected", wrong_magic, 5, None),
         ("no bytes", "FrameRejected", Vec::new(), 0, None),
     ];
@@ -899,6 +920,11 @@ impl Open<'_> {
         ]);
         let test = TestCase::new(comment, flags, expect, inputs);
         match plaintext {
+            Some(plaintext)
+                if plaintext.iter().all(|byte| *byte == 0) && plaintext.len() > 1_024 =>
+            {
+                test.with_outputs(vec![("plaintextZeros", Input::Int(int(plaintext.len())))])
+            }
             Some(plaintext) => test.with_outputs(vec![("plaintext", Input::bytes(plaintext))]),
             None => test,
         }
@@ -964,6 +990,28 @@ fn data_open_tests(seed: &[u8; 32]) -> Vec<TestCase> {
     zero_nonce[..24].fill(0);
     let secret_frame = seal(&random_id, &compressed);
     let secret_bad_frame = seal(&random_id, &checksum);
+    let zeros = vec![0u8; MIB];
+    let zeros_inner = encode_chunk(&zeros, ORDINARY);
+    assert_eq!(zeros_inner[0], 1, "zeros are compressed");
+    let zeros_id = object.keyed_id(&zeros);
+    // Frames of an RLE block of 16 bytes and a raw block: 45 bytes for 48 keeps the store-raw
+    // rule exactly (16 × 45 = 15 × 48); 46 for 49 does not.
+    let rle_raw = |raw: usize| {
+        let frame = zstd_frame::frame(
+            &Header::declaring((16 + raw) as u64),
+            &[Block::Rle(b'a', 16), Block::Raw(vec![b'b'; raw])],
+        );
+        let plain = [vec![b'a'; 16], vec![b'b'; raw]].concat();
+        (inner::inner(1, &frame), plain, frame.len())
+    };
+    let (edge_inner, edge_plain, edge_len) = rle_raw(32);
+    assert_eq!((edge_len, edge_plain.len()), (45, 48));
+    let edge_id = object.keyed_id(&edge_plain);
+    let (past_inner, past_plain, past_len) = rle_raw(33);
+    assert_eq!((past_len, past_plain.len()), (46, 49));
+    let past_id = object.keyed_id(&past_plain);
+    let raw_framed = inner::inner(1, &zstd_frame::raw_frame(&random));
+    let random_keyed = object.keyed_id(&random);
 
     let ok = Some(chunk.as_slice());
     let data_open = "DataBlobOpen";
@@ -993,6 +1041,12 @@ fn data_open_tests(seed: &[u8; 32]) -> Vec<TestCase> {
         keyed(&over_declared).case("a frame holding more than it declares", &["BlobFrame"], "Decompress", None),
         open(ORDINARY, 2, id, chunk.len() + 1, good.clone()).case("plain_len one more than the frame declares", &["BlobFrame"], "Decompress", None),
         open(ORDINARY, 2, id, chunk.len() + 1, seal(&id, &raw)).case("a raw payload one byte shorter than plain_len", &["BlobFrame"], "Decompress", None),
+        open(ORDINARY, 2, id, chunk.len() - 1, seal(&id, &raw)).case("a raw payload one byte longer than plain_len", &["BlobFrame"], "Decompress", None),
+        open(ORDINARY, 2, edge_id, 48, seal(&edge_id, &edge_inner)).case("a frame of 45 bytes for 48: exactly 15/16, kept", &[data_open, "StoreRaw", "KeyedBlobId"], "Ok", Some(&edge_plain)),
+        open(ORDINARY, 2, past_id, 49, seal(&past_id, &past_inner)).case("a frame of 46 bytes for 49 saves less than 1/16, so a writer stores the chunk raw", &["StoreRaw"], "Decompress", None),
+        open(ORDINARY, 2, random_keyed, 300, seal(&random_keyed, &raw_framed)).case("random bytes in a raw-block frame longer than the chunk", &["StoreRaw"], "Decompress", None),
+        open(ORDINARY, 2, other_id, 49, seal(&other_id, &past_inner)).case("a frame that saves less than 1/16 and a wrong blob ID: the store-raw rule is checked first", &["StoreRaw", "CheckOrder"], "Decompress", None),
+        open(ORDINARY, 2, zeros_id, MIB, seal(&zeros_id, &zeros_inner)).case("plain_len exactly 2^20: a compressed 1 MiB of zeros", &[data_open, "PlainLenCap", "KeyedBlobId"], "Ok", Some(&zeros)),
         open(ORDINARY, 2, other_id, chunk.len(), seal(&other_id, &checksum)).case("a bad frame and a wrong blob ID: the frame is checked first", &["BlobFrame", "CheckOrder"], "Decompress", None),
         open(ORDINARY, 2, other_id, chunk.len() + 1, seal(&other_id, &raw)).case("a raw payload one byte shorter than plain_len and a wrong blob ID: the length is checked first", &["BlobFrame", "CheckOrder"], "Decompress", None),
         open(ORDINARY, 2, id, MIB + 1, seal(&id, &frame)).case("plain_len 2^20 + 1 is refused before decryption", &["PlainLenCap", "CheckOrder"], "Decompress", None),
@@ -1157,7 +1211,7 @@ fn notes() -> Vec<(&'static str, &'static [&'static str], &'static str)> {
         (
             "CutEdges",
             &["FS-52", "M-39", "T-84"],
-            "Files found by search so a cut sits on an edge of the rule: at the minimum and one past it, at the switch from the strict to the loose mask (a loose-only match at 2⌊center/2⌋ cuts, one at 2⌊center/2⌋ − 1 does not), at the last position tested, an odd last byte that would match if it were tested, and a repeated pattern that is cut only at the maximum. The generator checks each with its one-byte chunker.",
+            "Files found by search so a cut sits on an edge of the rule: at the minimum and one past it, at the switch from the strict to the loose mask (a loose-only match at 2⌊center/2⌋ cuts, one at 2⌊center/2⌋ − 1 does not), at the last position tested, an odd last byte that would match if it were tested, a repeated pattern that is cut only at the maximum, and a file between the average and the maximum where no position matches, so it is one chunk. The generator checks each with its one-byte chunker.",
         ),
         (
             "KeyedGear",
@@ -1197,12 +1251,12 @@ fn notes() -> Vec<(&'static str, &'static [&'static str], &'static str)> {
         (
             "Compress",
             &["FS-53", "T-40"],
-            "One zstd frame at level 3 with its content size, no checksum, no dictionary ID, window ≤ 2^20; equal output is only expected from the zstd version in the header.",
+            "One single-segment zstd frame at level 3 with its content size, no checksum, no dictionary ID and window_log 20; equal output is only expected from the zstd version in the header.",
         ),
         (
             "StoreRaw",
-            &["FS-53", "T-40"],
-            "The frame is kept only if 16 × frame ≤ 15 × chunk; otherwise the chunk is stored with comp 0.",
+            &["FS-53", "FS-56", "T-40"],
+            "The frame is kept only if 16 × frame ≤ 15 × chunk; otherwise the chunk is stored with comp 0. A reader refuses a comp 1 payload that breaks the rule as Decompress, before its frame is checked, so each chunk has one encoding.",
         ),
         (
             "SecretRaw",
@@ -1212,12 +1266,17 @@ fn notes() -> Vec<(&'static str, &'static [&'static str], &'static str)> {
         (
             "FrameOk",
             &["FS-53", "T-39"],
-            "Frames FS-53 allows decode to exactly plain_len bytes with any zstd version; raw and RLE frames are built by hand.",
+            "Frames FS-53 allows decode to exactly plain_len bytes, as libzstd 1.5.7 decodes them; a reader on another decoder must give the same results, and crypthix-core's own Decompressor requires 1.5.7. Raw, RLE and literals-only frames are built by hand.",
         ),
         (
             "FrameRejected",
             &["FS-53", "T-39"],
-            "A frame that is not exactly one frame with content size plain_len in the shortest field that holds it, no checksum, no dictionary ID, the unused and reserved bits clear and a window ≤ 2^20, or whose content differs from its declaration, is Decompress.",
+            "A frame that is not exactly one single-segment frame with content size plain_len in the shortest field that holds it, no checksum, no dictionary ID and the unused and reserved bits clear, that is cut off, or whose content differs from its declaration, is Decompress.",
+        ),
+        (
+            "BlockSize",
+            &["FS-53", "T-39"],
+            "A block larger than min(window, 128 KiB), where a single segment's window is plain_len and an RLE block counts the bytes it regenerates, is Decompress, though libzstd 1.5.7 decodes such a frame in one pass.",
         ),
         (
             "PlainLenCap",
@@ -1262,7 +1321,7 @@ fn notes() -> Vec<(&'static str, &'static [&'static str], &'static str)> {
         (
             "BlobFrame",
             &["FS-53", "T-39"],
-            "A data blob whose payload does not decode to exactly plain_len bytes is Decompress.",
+            "A data blob whose payload is not exactly plain_len bytes when raw, or does not decode to exactly plain_len bytes when compressed, is Decompress.",
         ),
         (
             "SealShape",

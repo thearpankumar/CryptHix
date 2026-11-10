@@ -228,6 +228,34 @@ pub(crate) fn version() -> &'static str {
     zstd_safe::version_string()
 }
 
+/// A single-segment frame of 2^17 bytes: one compressed block of exactly 128 KiB, the block
+/// maximum, holding 2^17 − 4 zero bytes as raw literals, then a raw block of 4 zeros. The
+/// encoder never writes such a block, and libzstd up to 1.5.2 refused it (zstd's
+/// `decompressor_errata.md`); the raw block brings the content, and so the window, to 128 KiB.
+pub(crate) fn max_compressed_block() -> Vec<u8> {
+    let literals = vec![0; MAX_BLOCK - 4];
+    frame(
+        &Header::declaring(MAX_BLOCK as u64),
+        &[
+            Block::Compressed(literals_only(&literals)),
+            Block::Raw(vec![0; 4]),
+        ],
+    )
+}
+
+/// A single-segment frame of one RLE block of `len` zero bytes, however long.
+pub(crate) fn one_rle_block(len: usize) -> Vec<u8> {
+    frame(&Header::declaring(len as u64), &[Block::Rle(0, len)])
+}
+
+/// A single-segment frame of one raw block holding `content`, however long.
+pub(crate) fn raw_frame_one_block(content: &[u8]) -> Vec<u8> {
+    frame(
+        &Header::declaring(content.len() as u64),
+        &[Block::Raw(content.to_vec())],
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,23 +306,32 @@ mod tests {
         let raw = raw_frame(&vec![7; MAX_BLOCK]);
         assert_eq!(raw.len(), 4 + 1 + 4 + 3 + MAX_BLOCK, "one raw block");
         assert_eq!(decode(&raw, MAX_BLOCK), Ok(vec![7; MAX_BLOCK]));
-        let literals = vec![7; MAX_BLOCK - 4];
-        let content = literals_only(&literals);
-        assert_eq!(content.len(), MAX_BLOCK);
-        let header = Header {
-            single_segment: false,
-            window: Header::window_of(17),
-            ..Header::declaring(literals.len() as u64)
-        };
-        let compressed = frame(&header, &[Block::Compressed(content)]);
-        assert_eq!(decode(&compressed, literals.len()), Ok(literals.clone()));
-        // The block may be no larger than the window: here 2^17 bytes. With a single segment the
-        // window is the content size, 4 bytes smaller than the block, and zstd refuses it.
-        let single = frame(
+        let compressed = max_compressed_block();
+        assert_eq!(decode(&compressed, MAX_BLOCK), Ok(vec![0; MAX_BLOCK]));
+        // The block may be no larger than the window, which in a single segment is the content
+        // size: without the raw block after it, the content is 4 bytes smaller than the block,
+        // and zstd refuses it.
+        let literals = vec![0; MAX_BLOCK - 4];
+        let alone = frame(
             &Header::declaring(literals.len() as u64),
             &[Block::Compressed(literals_only(&literals))],
         );
-        assert!(decode(&single, literals.len()).is_err());
+        assert!(decode(&alone, literals.len()).is_err());
+    }
+
+    #[test]
+    fn libzstd_decodes_blocks_over_the_maximum_in_one_pass() {
+        // RFC 8878 caps a block at min(window, 128 KiB); libzstd 1.5.7 checks it only on its
+        // block-by-block path, so FS-53 checks it before decoding.
+        assert_eq!(
+            decode(&one_rle_block(1 << 20), 1 << 20),
+            Ok(vec![0; 1 << 20])
+        );
+        let over = raw_frame_one_block(&vec![0; MAX_BLOCK + 1]);
+        assert_eq!(decode(&over, MAX_BLOCK + 1), Ok(vec![0; MAX_BLOCK + 1]));
+        // One RLE block longer than the window, which is the content size: refused anyway.
+        let longer = frame(&Header::declaring(5), &[Block::Rle(b'a', 6)]);
+        assert!(decode(&longer, 5).is_err());
     }
 
     #[test]
