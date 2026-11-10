@@ -14,6 +14,7 @@ chacha20poly1305 = { version = "0.11.0", default-features = false }
 crypthix-crypto = { path = "../../../crates/foundation/crypto", features = ["test-rng"] }
 hkdf = "0.13.0"
 sha2 = { version = "0.11.1", default-features = false }
+zstd-safe = { version = "8.2.0", default-features = false }
 
 [lints]
 workspace = true

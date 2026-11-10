@@ -10,3 +10,37 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+crypthix-crypto.workspace = true
+crypthix-types.workspace = true
+zstd-safe = { version = "8.2.0", default-features = false }
+
+[features]
+# Exposes the keys, AADs and chunk constructors that bypass `ObjectSealer`'s binding to its
+# object (`ChunkKeys::chunk_key` and `blob_id_key`, `MetaKey::seal_key`, `blob::data_blob_aad`
+# and `meta_blob_aad`, `MetaKind::from_code`, `ChunkRef::from_parts` and the
+# `scaled_for_fuzzing` chunkers), for the TV-07 runner and the fuzz targets (FS-55, FS-94).
+# Release builds must never enable it; `cargo xtask check-features` fails if anything in the
+# main workspace does. It must not enable `crypthix-crypto/vectors` either.
+vectors = []
+
+[dev-dependencies]
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+crypthix-crypto = { workspace = true, features = ["vectors"] }
+fastcdc = "5.0.0"
+proptest = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[[bench]]
+name = "chunking"
+harness = false
+
+[[bench]]
+name = "inner"
+harness = false
+
+[[test]]
+name = "tv07"
+required-features = ["vectors"]

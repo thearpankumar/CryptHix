@@ -16,6 +16,7 @@ publish = false
 # Internal crates other crates depend on. Add an entry when a crate gains its first dependent:
 # cargo warns about unused ones (see docs/backlog.md#architecture-rules for the layers).
 crypthix-types = { path = "crates/foundation/types" }
+crypthix-crypto = { path = "crates/foundation/crypto" }
 crypthix-testkit = { path = "crates/foundation/testkit" }
 
 # External crates.

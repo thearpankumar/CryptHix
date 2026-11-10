@@ -1,8 +1,8 @@
 # Nightly jobs skip the weekly cron ("47 3 * * 1") so Mondays do not run them twice.
 #
 # Long and broad checks kept off the PR path: deep fuzzing and property tests, Miri, nightly
-# doctests, fresh advisories, other platforms, other kernels and coverage every night; full
-# mutation testing, links, the full secret history and a runner capability probe every week.
+# doctests, fresh advisories, other platforms and i686, other kernels and coverage every night;
+# full mutation testing, links, the full secret history and a runner capability probe every week.
 #
 # A PR that edits this file runs it too, with short time limits, so changes are tested before
 # they reach the schedule.
@@ -52,6 +52,10 @@ jobs:
           - id_text
           - cx_open
           - verifying_key
+          - inner_plaintext
+          - decompress
+          - data_blob_open
+          - chunker
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,7 +118,7 @@ jobs:
         run: cargo bench --workspace --no-run --locked
 
   miri:
-    name: Miri (crypthix-types, crypthix-crypto) and nightly doctests
+    name: Miri (crypthix-types, crypthix-crypto, crypthix-core) and nightly doctests
     if: github.event.schedule != '47 3 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -135,7 +139,17 @@ jobs:
       # Under Miri secure_mem uses its Heap backing, so Miri checks the slot and arena pointer
       # logic, SecretVec slices, the open paths and the wipes; the mmap, mprotect, mlock and
       # memfd_secret code is compiled out and is covered by the native Linux tests instead
-      # (tests/secure_mem_linux.rs and the Linux unit tests).
+      # (tests/secure_mem_linux.rs and the Linux unit tests). For crypthix-core too only the unit
+      # tests run: Padmé, the inner plaintext, the frame header checks, the cut loop on short input,
+      # the gear table, key derivation, the meta blobs, and data blobs with raw payloads opened end
+      # to end (the plain_len cap, Decrypt on each AAD field, Padding, Limit, a payload of the
+      # wrong length and Binding), since the decompressor makes its zstd context only at the
+      # first frame. zstd is C, which Miri cannot run, so the tests that call it are ignored
+      # there, as are megabyte inputs and a 2 MiB window. The property tests that call no zstd
+      # run here at their scaled-down sizes (the cut loop, Chunks, StreamChunker against memory,
+      # Padmé and the inner plaintext under mutation); under Miri their byte inputs come from
+      # one drawn seed at half the length (test_data::bytes), since proptest's tree of one value
+      # per byte cost more than the tests. The crypthix-core tests take about 4.5 minutes.
       - name: cargo miri test
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
@@ -143,6 +157,7 @@ jobs:
         run: |
           rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
           rustup run nightly-2026-10-15 cargo miri test -p crypthix-crypto --lib --locked
+          rustup run nightly-2026-10-15 cargo miri test -p crypthix-core --lib --locked
       # Only nightly rustdoc checks the error code pinned on a `compile_fail` doctest (such as
       # `compile_fail,E0277`); stable runs the doctests on every PR but accepts any error.
       - name: Doctest error codes
@@ -176,7 +191,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025, ubuntu-24.04-arm]
+        # macos-15-intel builds zstd's x86_64 assembly (the Huffman decoder) with Apple clang,
+        # which neither the Arm macOS runner nor Linux does.
+        os: [macos-15, macos-15-intel, windows-2025, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -186,8 +203,38 @@ jobs:
           cache-key: platform
       # xtask is deliberately cross-platform: the pre-commit hook runs it on every OS.
       - run: cargo test --workspace --all-features --locked
-      # secure_mem's cfg branches differ per OS, so lint the crate where they are compiled.
-      - run: cargo clippy -p crypthix-crypto --all-features --all-targets --locked -- -D warnings
+      # secure_mem's cfg branches differ per OS, so lint the crate where they are compiled, and
+      # crypthix-core with it, whose zstd-sys builds libzstd with each platform's C compiler.
+      - run: >-
+          cargo clippy -p crypthix-crypto -p crypthix-core --all-features --all-targets --locked
+          -- -D warnings
+      # The libzstd the tests ran against is the one zstd-sys built, linked statically, with
+      # this platform's C compiler and archiver.
+      - run: cargo xtask check-zstd-link
+
+  # 32-bit x86: usize is 4 bytes, and zstd's encoder takes 32-bit code paths whose output must
+  # still be the bytes TV-07 pins. Runs on x86_64 Linux with the multilib C toolchain.
+  i686:
+    name: Test crypthix-core on i686 Linux
+    if: github.event.schedule != '47 3 * * 1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: i686
+      - name: Install the i686 target and gcc-multilib
+        run: |
+          rustup target add i686-unknown-linux-gnu
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-multilib
+      - run: cargo test -p crypthix-core --all-features --locked --target i686-unknown-linux-gnu
+      - run: cargo xtask check-zstd-link --target i686-unknown-linux-gnu
 
   # The crypto tests in kernels with and without the CVE-2026-93243 fix (kernel-test.yml), so
   # the nightly run also notices a change on the runner image or in the tools that breaks them.

@@ -2,6 +2,8 @@
 //!
 //! - `cargo xtask check-layers` checks crate dependencies against the layer rules.
 //! - `cargo xtask check-features` checks that no release build enables a test-only feature.
+//! - `cargo xtask check-zstd-link [--target <triple>]` checks that `zstd-sys` links its own
+//!   libzstd statically (see `zstd_link.rs`).
 //! - `cargo xtask pre-commit` runs the pre-commit checks on the staged changes.
 //! - `cargo xtask install-hooks` enables the hooks in `.githooks/` for this clone.
 //! - `cargo xtask vectors [--check]` rewrites the test vectors, or checks they are current.
@@ -27,6 +29,7 @@ mod pre_commit;
 mod process;
 mod side;
 mod vendored;
+mod zstd_link;
 
 use std::collections::HashMap;
 use std::env;
@@ -45,6 +48,7 @@ fn main() -> ExitCode {
     match command {
         "check-layers" => report(check_layers()),
         "check-features" if rest.is_empty() => report(features::check()),
+        "check-zstd-link" => report(zstd_link::check(rest)),
         "pre-commit" => pre_commit::run(),
         "install-hooks" => pre_commit::install(),
         "vectors" => side::vectors(rest),
@@ -64,7 +68,7 @@ fn main() -> ExitCode {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: cargo xtask <check-layers | check-features | pre-commit | install-hooks | vectors | test-extra \
+        "usage: cargo xtask <check-layers | check-features | check-zstd-link | pre-commit | install-hooks | vectors | test-extra \
          | fuzz | ci | check-docs | check-vendored | check-commits | kernel-test>"
     );
     ExitCode::FAILURE

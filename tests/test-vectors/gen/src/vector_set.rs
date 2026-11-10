@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::json::Json;
 use crate::test_case::TestCase;
-use crate::{tv02, tv03, tv04, tv05, tv17};
+use crate::{tv02, tv03, tv04, tv05, tv07, tv17};
 
 /// What the generator writes into the `generator` field of a set with no randomness.
 const GENERATOR: &str = "hand-written (crypthix-vector-gen reproduces it)";
@@ -111,6 +111,7 @@ pub fn sets() -> Vec<VectorSet> {
         tv03::set(),
         tv04::set(),
         tv05::set(),
+        tv07::set(),
         tv17::set(),
     ]
 }

@@ -56,6 +56,7 @@ jobs:
               - "tests/**"
               - "crates/foundation/types/**"
               - "crates/foundation/crypto/**"
+              - "crates/engine/core/**"
               - "xtask/**"
               - "Cargo.lock"
               - "rust-toolchain.toml"
@@ -63,8 +64,10 @@ jobs:
             crypto:
               - "crates/foundation/types/**"
               - "crates/foundation/crypto/**"
+              - "crates/engine/core/**"
               - "Cargo.lock"
               - "rust-toolchain.toml"
+              - "xtask/src/zstd_link.rs"
               - ".github/workflows/ci.yml"
             kernel:
               - "crates/foundation/types/**"
@@ -80,6 +83,7 @@ jobs:
               - "tests/Cargo.lock"
               - "crates/foundation/types/src/**"
               - "crates/foundation/crypto/src/**"
+              - "crates/engine/core/src/**"
               - "xtask/src/side.rs"
               - ".github/workflows/ci.yml"
             mutants:
@@ -307,7 +311,8 @@ jobs:
 
   # secure_mem compiles different code on every OS, and the nightly platform runs come too late
   # for a pull request, so one other OS's branches are linted here: Windows, cross-compiled on
-  # Linux, which needs only MinGW's C compiler for the C parts of blake3 and alloca.
+  # Linux, which needs only MinGW's C compiler for the C parts of blake3, alloca and the libzstd
+  # that crypthix-core builds from source (zstd-sys).
   windows-clippy:
     name: Clippy for Windows
     needs: changes
@@ -330,8 +335,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - run: >-
-          cargo clippy -p crypthix-crypto --all-features --all-targets --locked
+          cargo clippy -p crypthix-crypto -p crypthix-core --all-features --all-targets --locked
           --target x86_64-pc-windows-gnu -- -D warnings
+
+  # crypthix-core's tests on Windows with MSVC, which builds libzstd with cl.exe, so a TV-07
+  # mismatch or a link problem there shows up on the pull request, not the next night.
+  windows-test:
+    name: Test crypthix-core on Windows
+    needs: changes
+    # `changes` is skipped on push, so this job must not require it to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.crypto == 'true') }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: windows-test
+      - run: cargo test -p crypthix-core --all-features --locked
+      - run: cargo xtask check-zstd-link
 
   # Protected key memory on a kernel with the CVE-2026-93243 fix and one without it, booted in
   # QEMU with virtme-ng (about 5 minutes per kernel, side by side).
@@ -380,7 +406,8 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.mutants == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # A PR that adds a whole module brings a few hundred mutants, tested one at a time.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
@@ -421,6 +448,7 @@ jobs:
       - deny
       - side
       - windows-clippy
+      - windows-test
       - kernel-test
       - fuzz-smoke
       - mutants
@@ -431,5 +459,5 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: changes, pr, links, side, windows-clippy, kernel-test, fuzz-smoke, mutants
+          allowed-skips: changes, pr, links, side, windows-clippy, windows-test, kernel-test, fuzz-smoke, mutants
           allowed-failures: mutants

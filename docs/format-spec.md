@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Status | Format 0, draft v0.7 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, the primitives, label registry and CX-AEAD in `crypthix-crypto`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
+| Status | Format 0, draft v0.8 after two rounds of persona review; preamble and CBOR implemented in `crypthix-types`, the primitives, label registry and CX-AEAD in `crypthix-crypto`, chunking, compression, padding and data and meta blobs in `crypthix-core`, with generated vectors and fuzz targets. No compatibility promise (see [FS-24](#6-versioning-and-no-downgrade)) |
 | Owner | Arpan ([@thearpankumar](https://github.com/thearpankumar)) |
 | Date | 2026-10-29 |
 | Format / suite | Format version `0x0000`, suite `0x0001` |
@@ -111,6 +111,7 @@ Field-table columns: **Key** is the CBOR map key (negative = critical, [FS-09](#
 | Number of packs, their size classes and write times; shard sizes and counts | Storage itself (R-5) |
 | An upper bound on how much changed per commit | Pack count and size class per commit |
 | Whether a commit reused chunks of an ordinary file | Fewer new data packs (residual of [FS-55](#104-blobs)) |
+| How many chunks of one version of an ordinary file repeat, for example runs of zeros cut at 1 MiB that share one keyed ID, which point to sparse regions | Less new pack space than the file's size needs (residual of [FS-55](#104-blobs)) |
 | For a commit that changes one file: that file's approximate size and its set of packs | The commit's new packs are that file (Padmé bounds the leak per chunk, not per commit) |
 | When shards are written and deleted, and which were written and deleted together; when compaction runs | Storage itself; garbage collection ([FS-91](#17-commit-rotation-and-garbage-collection)) |
 | Key-management events: a root rotation (new `vault_id` and keyring), a passphrase change (rewritten slot), a revocation (device-set status) | Clear key files and device sets |
@@ -298,10 +299,11 @@ Bodies are CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)) except wher
 | Items in one document, counted recursively | 2^22; every head counts once, containers included, so a map entry counts as two |
 | One byte string | 16 MiB |
 | Decompressed chunk | `plain_len` from the manifest, at most 1 MiB ([FS-53](#102-compression)) |
+| Inner plaintext payload | `payload_len` at most 2^20 ([FS-54](#103-padding-and-inner-plaintext)) |
 | Tree fan-out (index, key-table, location and pack-table nodes) | 4,096 entries per node |
 | Tree depth | 16 |
 
-Exceeding a limit is `Limit`. A declared string length or container count larger than the bytes left in the document is `Limit` too, decided at that item's head, before anything is read or allocated for it; input that ends inside a head is `Truncated`.
+Exceeding a limit is `Limit`, except a `plain_len` above 2^20, which is `Decompress` (FS-53). A declared string length or container count larger than the bytes left in the document is `Limit` too, decided at that item's head, before anything is read or allocated for it; input that ends inside a head is `Truncated`.
 
 ### 5.3 AAD, KDF context and signature input
 
@@ -425,7 +427,7 @@ HKDF-Expand is keyed directly by K, which RFC 5869 section 3.3 allows for unifor
   overhead: 72 bytes. A wrapped 32-byte key is 104 bytes.
 ```
 
-**FS-28.** A key wrap and a data seal never share an AAD label: the key-wrap labels (`keyring`, `epoch`, `vault-sign-key`, `device-key`, `dek-wrap`, `pack-key-wrap`, `log-key`) are sealed and opened only as wrapped keys, so a wrapped key's bytes never reach a caller and chosen bytes never become a key (backlog rule 9). An all-zero nonce is `ZeroValue` (FS-03). Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle. An open whose commitment holds but that gets no protected memory for its plaintext fails with a memory error of `crypthix-crypto`, not a format error and never `Decrypt`, so memory pressure is not mistaken for tampering; it reveals nothing, since only a genuine nonce and commitment get that far.
+**FS-28.** A key wrap and a data seal never share an AAD label: the key-wrap labels (`keyring`, `epoch`, `vault-sign-key`, `device-key`, `dek-wrap`, `pack-key-wrap`, `log-key`) are sealed and opened only as wrapped keys, so a wrapped key's bytes never reach a caller and chosen bytes never become a key (backlog rule 9). A seal shorter than its 72 bytes of overhead is `Truncated`, and an all-zero nonce is `ZeroValue` (FS-03). Open MUST recompute `C` and compare it in constant time before it checks the tag. Any change to the key, nonce or AAD therefore fails as `Commitment`; only a change to the ciphertext or tag reaches `AeadTag`. Both names exist only inside `crypthix-crypto` (behind a `vectors` feature for TV-05); every caller outside that crate sees the one opaque error `Decrypt`, so there is no oracle. An open whose commitment holds but that gets no protected memory for its plaintext fails with a memory error of `crypthix-crypto`, not a format error and never `Decrypt`, so memory pressure is not mistaken for tampering; it reveals nothing, since only a genuine nonce and commitment get that far.
 
 **FS-29.** Nonces are 24 bytes and come in two kinds. Neither is taken straight from `getrandom`: following the hedging framework of [Ristenpart and Yilek (NDSS 2010)](https://www.cs.toronto.edu/~ristenpart/papers/sslhedge.html), the randomness is mixed with the key, the AAD and the plaintext, so repeated randomness (a VM restored from a snapshot, T-81) leaks at most that two seals are equal, the minimum any deterministic scheme leaks ([RFC 8452](https://www.rfc-editor.org/rfc/rfc8452)). This is a privacy bound; authenticity rests, as always, on the commitment and the Poly1305 tag under the per-nonce key:
 
@@ -687,11 +689,24 @@ pack-key wrap, key K_pkwrap_e:
 
 ### 10.1 Chunking
 
-**FS-52.** Files are cut with FastCDC (2020, normalised chunking level 2) with minimum 64 KiB, average 256 KiB and maximum 1 MiB. The 256-entry gear table is the first 2,048 bytes of the BLAKE3 XOF in keyed mode under `K_gear`, over the empty input, read as u64 little-endian words; the shifted table, masks and cut rule are those of the FastCDC 2020 paper as implemented by the `fastcdc` crate's `v2020` module (pinned), and TV-07 includes a boundary known-answer test. `chunker_seed` is 32 random bytes in the sealed part of the config, so backends cannot recompute boundaries. The design assumes the seed may still leak, since keyed chunkers have been attacked from observed sizes ([ePrint 2025/558](https://eprint.iacr.org/2025/558)); packs are what hide boundaries (M-39, T-84). A file smaller than the minimum is one chunk; an empty file has no chunks.
+**FS-52.** Ordinary objects are cut with FastCDC (2020, normalised chunking level 2) with minimum `min` = 64 KiB, average `avg` = 256 KiB and maximum `max` = 1 MiB. The 256-entry gear table `gear` is the first 2,048 bytes of the BLAKE3 XOF in keyed mode under `K_gear`, over the empty input, read as u64 little-endian words. The masks are `MASK_S = 0x0000d91747537000` (20 bits set) and `MASK_L = 0x0000d90303537000` (16 bits set), entries 20 and 16 of the FastCDC 2020 mask table. The first chunk of `n` remaining bytes is cut by this rule:
+
+1. If `n ≤ min`, the chunk is all `n` bytes. An empty file therefore has no chunks, and a file no longer than the minimum is one chunk.
+2. Otherwise let `end = min(n, max)`, `center = min(n, avg)` and `h = 0`.
+3. For each byte position `i` from `2⌊min/2⌋` up to but not including `2⌊end/2⌋`, set `h = (h << 1) + gear[b_i] mod 2^64`, where `b_i` is the byte at `i`. The mask is `MASK_S` while `i < 2⌊center/2⌋` and `MASK_L` after. If `h & mask = 0`, the chunk is bytes `0` to `i − 1`: the cut comes just before the byte that matched.
+4. If no position matches, the chunk is the first `end` bytes, so a chunk is cut at `max` at the latest. An odd last byte is never tested, so it is never a cut point.
+
+The next chunk is cut the same way from where this one ends. This is the cut rule of `fastcdc::v2020::cut_gear` in the `fastcdc` crate 5.0.0, which takes two bytes per step with a shifted table and shifted masks and cuts at the same places; `fastcdc` 3.x differs at odd tails. The masks are fixed here, not chosen by the crate's `select_masks`, which computes them through floating point. TV-07 checks the boundaries against a second chunker in the generator that takes one byte per step. `chunker_seed` is 32 random bytes in the sealed part of the config, so backends cannot recompute boundaries. The design assumes the seed may still leak, since keyed gear tables have been recovered from observed chunk sizes ([ePrint 2025/558](https://eprint.iacr.org/2025/558)); a writer keeps the table in plaintext memory (a `SecretBuf`: wiped on free and, on Linux, locked where the memory limit allows and out of core dumps; plain heap memory elsewhere), not in the secret pages that hold keys (FS-31). Packs (FS-59) are what hide the sizes; Padmé (FS-54) only coarsens them, to steps of 8 KiB for a 256 KiB chunk and 32 KiB for a 1 MiB one, so about 7 bits of each chunk's length stay visible in any blob seen outside a pack (5 significant bits and the octave: 129 padded lengths between 64 KiB and 1 MiB), as every blob is until packs land with the encrypt pipeline item (M-39, T-84, R-5).
+
+Objects of the secret class (FS-55) are not cut by this rule. They are cut into chunks of exactly `max` = 1 MiB from the start, with the remainder as a shorter last chunk; an empty object has no chunks, and an object of exactly 1 MiB is one chunk. No byte is looked up in the gear table. The FastCDC loop indexes the table with plaintext bytes and stops early at a cut, so a process sharing the CPU cache could learn bits of the bytes and the cut positions from its timing, and the chunk lengths of every object cut with the table feed the gear-table recovery of T-84. Secret-class chunks get random blob IDs and are never reused, so content-defined boundaries would give them nothing. A reader does not check boundaries, for either class; TV-07 checks both rules.
 
 ### 10.2 Compression
 
-**FS-53.** Each chunk is compressed with zstd (version pinned, level 3) into exactly one frame with its content size declared, no checksum, no dictionary, no skippable frames and `window_log ≤ 20`. If `16 × compressed > 15 × plain`, the chunk is stored with `comp = 0`. Objects of the secret class are never compressed, so attacker-influenced data and secrets never share a compression context (T-40). A reader decompresses with a streaming decoder whose output is capped at the chunk's `plain_len` from the manifest, and the result MUST be exactly `plain_len` bytes, at most 1 MiB (`Decompress`).
+**FS-53.** Each chunk of an ordinary object is compressed with zstd (libzstd 1.5.7, level 3) into exactly one frame with its content size declared, no checksum, no dictionary ID and `window_log = 20`. For a chunk of at most 1 MiB libzstd shrinks the window to the content size, so the frame is always a single segment: it has no window descriptor and its window is `plain_len`. Its compressed length is the length of that frame. If `16 × compressed > 15 × plain`, the chunk is stored with `comp = 0`, so a frame is kept only if it saves at least 1/16 (the store-raw rule). A reader enforces the rule too, so a chunk has one encoding. A zstd error fails the write; the chunk is never stored raw instead. Each chunk is its own frame, with no dictionary and no history from other chunks. Objects of the secret class are never compressed, so nothing in a secret-class object shares a compression context with its secrets. That keeps attacker-influenced data and secrets apart only where every secret is in a secret-class object. An ordinary object whose content mixes trust levels, such as a mail store, a chat or app SQLite database or a browser profile, can hold injected data and a secret in one chunk, which is the setting of compression injection attacks ([Fábrega et al., IEEE S&P 2024](https://arxiv.org/abs/2411.09228)); Padmé only raises the number of injections such an attack needs, and packs (FS-59) are what hide the sizes it reads. This is a residual for ordinary objects of mixed trust (T-40); the recourse is a per-path policy (P2) that makes such paths secret class or stores them with `comp = 0`. zstd output may differ between versions, so the encoder is pinned. A reader accepts a frame exactly when it passes the checks below and libzstd 1.5.7 then decodes it to `plain_len` bytes; that, not RFC 8878 alone, defines a valid frame, so a reader built on another decoder must accept what 1.5.7 accepts after these checks, and nothing more.
+
+A reader takes `plain_len` from the manifest. Above 2^20 the chunk is `Decompress` before it is decrypted or anything is allocated. After the inner plaintext passes FS-54, a chunk of a secret-class object with `comp = 1` is `Padding`, before its frame is looked at. Then, each failure being `Decompress`:
+- with `comp = 0`, `payload_len` MUST equal `plain_len`;
+- with `comp = 1`, the payload MUST first keep the store-raw rule, `16 × payload_len ≤ 15 × plain_len`, since no writer keeps a frame that saves less; this needs only the two lengths, so it comes before the frame is read. The payload MUST then be exactly one zstd frame: the zstd magic number, so no skippable frame; the single-segment bit (`0x20`) of the frame header descriptor set, so no window descriptor and a window of `plain_len`; the unused bit (`0x10`) and the reserved bit clear; no checksum; no dictionary ID; a declared content size equal to `plain_len`, in the shortest field that holds it (one byte below 256 bytes, two bytes with the offset of 256 for 256 to 65,791 bytes, otherwise four), as libzstd's encoder writes it; blocks of type raw, RLE or compressed, never the reserved type 3, each with a `Block_Size` of at most `min(plain_len, 128 KiB)`, the `Block_Maximum_Size` of RFC 8878 for a window of `plain_len`, where an RLE block's `Block_Size` is the number of bytes it regenerates; and no bytes after the last block. These are checked before a byte is decoded, by walking the block headers to the frame's end. RFC 8878 has encoders write the unused bit as zero but decoders ignore it, lets a size be written in any field that holds it, and lets any frame carry a window descriptor; libzstd 1.5.7 decodes all three, but no FS-53 writer produces them, so a reader refuses them rather than accept two encodings of one chunk. libzstd 1.5.7 checks the block maximum only on its block-by-block path (`ZSTD_decompressContinue`), not when it decodes a whole frame in one pass, as `ZSTD_decompress` does and as `ZSTD_decompressStream` does when given the whole frame and room for its content; so it decodes, for example, one RLE block of 2^20 bytes, which a reader refuses. A streaming decoder then writes into a buffer of exactly `plain_len` bytes, and MUST fill it and end the frame.
 
 ### 10.3 Padding and inner plaintext
 
@@ -706,7 +721,7 @@ pack-key wrap, key K_pkwrap_e:
   PETS 2019): at most 12% overhead, leaking O(log log n) bits of size.
 ```
 
-The total length MUST be `padme(6 + payload_len)`, where for `L ≥ 2`: `E = ⌊log2 L⌋`, `S = ⌊log2 E⌋ + 1`, `z = E − S`, `padme(L) = (L + 2^z − 1) & ¬(2^z − 1)` (for `L < 2`, `padme(L) = L`). A reader MUST check that `comp` is 0 or 1, `rsv` is 0, the pad is zero and the length is exactly that (`Padding`).
+The payload is the chunk for `comp = 0` and its zstd frame for `comp = 1` (FS-53). The total length MUST be `padme(6 + payload_len)`, where for `L ≥ 2`: `E = ⌊log2 L⌋`, `S = ⌊log2 E⌋ + 1`, `z = E − S`, `padme(L) = (L + 2^z − 1) & ¬(2^z − 1)` (for `L < 2`, `padme(L) = L`). A reader checks, in this order: at least the 6 header bytes (`Padding`); `comp` is 0 or 1 (`Padding`); `rsv` is 0 (`Padding`); `payload_len ≤ 2^20` (`Limit`), before the length is used for anything; the total length is exactly `padme(6 + payload_len)` (`Padding`); every pad byte is zero (`Padding`).
 
 ### 10.4 Blobs
 
@@ -728,9 +743,15 @@ aad = u8 len ‖ "crypthix/v0/aad/blob-data" ‖ fmt ‖ suite ‖ vault_id ‖ 
       ‖ object_id ‖ dek_id ‖ blob_id
 ```
 
-The AAD binds each chunk to its vault, object and DEK. Version, position, order, count and the final chunk are bound by the manifest, which is signed and lists every chunk ([FS-66](#11-object-manifest), [FS-67](#11-object-manifest)). For ordinary objects `blob_id = MAC(K_blobid, chunk plaintext)`, so an unchanged chunk is reused by the next version without re-encryption (E1). Deduplication stays inside one object, so no one learns whether another file shares a chunk (OQ-9, T-85). For secret-class objects, and for objects of a single chunk, `blob_id` is random and nothing is reused, so content injected into a small or secret file cannot confirm a guess through the number of new packs. Policy MAY turn reuse off for any path.
+The AAD binds each chunk to its vault, object and DEK. Version, position, order, count and the final chunk are bound by the manifest, which is signed and lists every chunk ([FS-66](#11-object-manifest), [FS-67](#11-object-manifest)). `blob_id` is keyed, `MAC(K_blobid, chunk plaintext)`, exactly when the object has `class = 0` (ordinary) and two or more chunks; otherwise it is 32 random bytes. A keyed ID lets the next version of the object reuse an unchanged chunk without re-encryption (E1). Deduplication stays inside one object, so no one learns whether another file shares a chunk (OQ-9, T-85). For secret-class objects, and for objects of a single chunk, nothing is reused, so content injected into a small or secret file cannot confirm a guess through the number of new packs. An ordinary object of two or more chunks whose content mixes trust levels, such as a mail store, a chat database or a log, has no such protection: in-object reuse is an injection oracle, since an attacker who injects a chunk of 64 KiB or more equal to an existing chunk with a guessed secret sees fewer new blobs, and steering boundaries is easier once the gear seed leaks (T-84). The recourse is a per-path policy (P2) that makes such paths secret class, as for T-40 (T-85). Inside one version of an ordinary object, equal chunks share a keyed ID, so a backend learns how many chunks repeat: runs of zeros, cut at 1 MiB (FS-52), all share one ID, which points to sparse regions ([2.1](#21-what-a-backend-learns)). A keyed ID looks like a random one, so no field records the kind: writer and reader both derive it from the manifest's `class` and `chunk_count`. A path whose chunks must never be reused is marked secret class; there is no other switch.
 
-**FS-56.** After opening an ordinary data blob, the reader MUST recompute `blob_id` from the decrypted chunk and compare (`Binding`).
+**FS-56.** After opening a data blob with a keyed `blob_id` (FS-55), the reader MUST recompute it from the decrypted chunk and compare in constant time (`Binding`, FS-15). A random `blob_id` has nothing to recompute. A reader opens a data blob with these checks in this order, and the first failure is the error (FS-93); no plaintext is released before all of them pass:
+1. `plain_len ≤ 2^20` (`Decompress`, FS-53), before anything is decrypted or allocated;
+2. the CX-AEAD open under `K_chunk` with the AAD of FS-55 (`Decrypt`; `Truncated` or `ZeroValue` as FS-28 says);
+3. the inner plaintext (`Padding`, `Limit`, FS-54);
+4. a secret-class object with `comp = 1` (`Padding`, FS-53);
+5. the payload against `plain_len`: for `comp = 0` its length, for `comp = 1` the store-raw rule, then the frame checks and decoding (`Decompress`, FS-53);
+6. a keyed `blob_id` (`Binding`).
 
 **FS-57.** A meta blob of kind 0x03–0x06 or 0x08 is `Seal(K_kind_e, aad, CBOR, hedged nonce)` with a random `blob_id` and:
 
@@ -1271,8 +1292,8 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `NameMismatch` | FS-06, FS-92 | File name or path does not match the content |
 | `Flags` | FS-07 | Non-zero preamble flags |
 | `TrailingBytes` | FS-07 | Bytes past `body_len` |
-| `Truncated` | FS-07, FS-11 | File shorter than declared, or input ending inside a CBOR head |
-| `Limit` | FS-07, FS-11 | A size, count, depth or fan-out limit exceeded |
+| `Truncated` | FS-07, FS-11, FS-28 | File shorter than declared, input ending inside a CBOR head, or a seal shorter than its overhead |
+| `Limit` | FS-07, FS-11, FS-54 | A size, count, depth or fan-out limit exceeded |
 | `NonCanonical` | FS-08 | CBOR not in deterministic form |
 | `Schema` | FS-09, FS-10 | Wrong type, missing key, wrong size, bad enum, invalid text, misplaced null |
 | `UnknownCritical` | FS-09, FS-20 | Unknown negative map key |
@@ -1281,7 +1302,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `UnsupportedStruct` | FS-19 | Unknown struct version |
 | `Downgrade` | FS-17, FS-18 | Format, suite or minimum version lower than the signed state |
 | `Feature` | FS-21 | Unknown incompat bit, or a write with an unknown ro_compat bit |
-| `ZeroValue` | FS-03, FS-04 | Zero key, ID, hash or counter |
+| `ZeroValue` | FS-03, FS-04, FS-28 | Zero key, ID, salt, hash, nonce or counter |
 | `VaultId` | FS-02 | `vault_id` does not match `master_pk` |
 | `MissingKey` | FS-30 | Key lookup missed |
 | `Decrypt` | FS-28 | Any failed CX-AEAD check, as seen outside `crypthix-crypto` |
@@ -1297,8 +1318,8 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `Expired` | FS-76, FS-83, FS-86 | Outside a validity window |
 | `Merkle` | FS-66, FS-72 | Merkle or tree commitment mismatch |
 | `ChunkList` | FS-67 | Chunk count or length mismatch |
-| `Padding` | FS-54, FS-60 | Reserved byte, pad or trailing header bytes not zero; bad compression code |
-| `Decompress` | FS-53 | Decompressed size wrong or over the cap |
+| `Padding` | FS-53, FS-54, FS-60 | Reserved byte, pad or trailing header bytes not zero; bad compression code; wrong padded length; a compressed chunk in a secret-class object |
+| `Decompress` | FS-53 | `plain_len` over the cap; a raw payload not `plain_len` bytes; a compressed payload that breaks the store-raw rule, is not exactly one allowed zstd frame, or does not decode to exactly `plain_len` bytes |
 | `Layout` | FS-60, FS-62 | Pack or shard bounds or parameters inconsistent |
 | `ShardHash` | FS-63, FS-64 | Shard or pack hash mismatch |
 | `Path` | FS-71 | Path breaks the normalisation rules |
@@ -1313,7 +1334,7 @@ The names below are the `expect` values of the test vectors. All but `Commitment
 | `Audience` | FS-86 | Job for another vault or recipient |
 | `Replay` | FS-86 | Job sequence number not above the last seen |
 
-**FS-93.** Every failure maps to exactly one error from this table: the first failing check in the order the rules give. In a CBOR document, items are checked in byte order, so the first item that breaks any rule decides; at one head, its encoding (FS-08: `Truncated`, `NonCanonical`, including a tag, float or simple value used as a map key) comes before the key rules of FS-09 (`Schema`), and those before the item's own rules and limits. Schema checks of a structure (missing keys, wrong types, `UnknownCritical`) run only on a document that passed. No plaintext is released from a chunk before its commitment, tag and blob ID verify, and no file content is released before the chunk list of that read verifies (SP-C2).
+**FS-93.** Every failure maps to exactly one error from this table: the first failing check in the order the rules give. In a CBOR document, items are checked in byte order, so the first item that breaks any rule decides; at one head, its encoding (FS-08: `Truncated`, `NonCanonical`, including a tag, float or simple value used as a map key) comes before the key rules of FS-09 (`Schema`), and those before the item's own rules and limits. Schema checks of a structure (missing keys, wrong types, `UnknownCritical`) run only on a document that passed. A data blob is checked in the order of FS-56, its inner plaintext in the order of FS-54. No plaintext is released from a chunk before its commitment, tag and blob ID verify, and no file content is released before the chunk list of that read verifies (SP-C2).
 
 ---
 
@@ -1368,7 +1389,7 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 - Every `expect` is `Ok` or a name from [section 19](#19-errors). Only TV-05 expects `Commitment` or `AeadTag`; every other set expects `Decrypt` for a CX-AEAD failure.
 - Every rule that can fail has at least one negative vector.
 - The generator uses a seeded `ChaCha20Rng` (from the `chacha20` crate) behind the `test-rng` feature of `crypthix-crypto` and draws only through `fill_bytes` on a separately labelled stream per test, seeded with keyed BLAKE3 of the set's `seed` and the label, never through `gen_range` or other distributions that may change between `rand` releases. `cargo xtask check-features` fails if a release build of the main workspace would enable `test-rng` or `vectors` (FS-01). TV-02, TV-03 and TV-17 draw no randomness, and the generator writes their bytes by hand rather than through the decoder they test. For TV-04 and TV-05 the generator computes `H`, `KDF`, `MAC`, CX-AEAD and the nonces with its own code over the audited crates, written from section 7 and not from `crypthix-crypto`, so the two implementations check each other.
-- zstd is pinned to one version, since its output may change between versions.
+- zstd is pinned to one version, named in the set's `zstd` header (1.5.7 for TV-07), since its encoder output may change between versions. A runner checks encoder output only under that version and fails under another; decoding vectors give the results FS-53 defines, through libzstd 1.5.7. A reader built on another decoder must give the same results; `crypthix-core`'s own `Decompressor` requires 1.5.7 and refuses any other libzstd (`CompressError::Version`).
 - CI regenerates the vectors and diffs them against the committed files (`cargo xtask vectors --check`). Vectors are frozen per format; changing a committed vector needs a changelog row here.
 - Argon2id vectors run at the 256 MiB floor and are marked slow (`#[ignore]`); the scheduled deep-test job runs them with `--ignored`.
 - Before the 1.0 audit, a second, independent decoder (for example a short Python reader) runs every set.
@@ -1417,9 +1438,19 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | Ciphertext or tag changed | TV-05 | `AeadTag` | FS-28 |
 | Same key and ciphertext opened with another nonce or AAD | TV-05 | `Commitment` | FS-27, M-9 |
 | DEK or pack-key wrap moved to another object, pack or epoch | TV-06 | `Decrypt` | FS-50, M-8 |
-| Data blob AAD: vault, object, DEK and blob ID changed in turn | TV-07 | `Decrypt` | FS-55, M-8, T-35 |
-| Blob decrypts but gives another blob ID | TV-07 | `Binding` | FS-56 |
-| Zstd frame larger than declared; `rsv` or pad not zero; unknown `comp` | TV-07 | `Decompress`, `Padding` | FS-53, FS-54 |
+| Data blob AAD: vault, object, DEK, blob ID, kind byte and label changed in turn; another key | TV-07 | `Decrypt` | FS-55, M-8, T-35 |
+| Data or meta blob one byte shorter than a seal; all-zero nonce | TV-07 | `Truncated`, `ZeroValue` | FS-28, FS-03, FS-57 |
+| Blob decrypts but gives another blob ID; a random blob ID in an ordinary object of two or more chunks | TV-07 | `Binding` | FS-55, FS-56, T-85 |
+| Inner plaintext shorter than its header; unknown `comp`; `rsv` or a pad byte not zero; one byte longer or shorter than `padme(6 + payload_len)` | TV-07 | `Padding` | FS-54, T-39 |
+| `payload_len` exactly 2^20; 2^20 + 1; 2^32 − 1; a bad `comp` or `rsv` with 2^20 + 1 | TV-07 | `Ok`, `Limit`, `Padding` first | FS-54, FS-93, T-39 |
+| `plain_len` exactly 2^20, as a frame and as a data blob of a compressed 1 MiB of zeros; 2^20 + 1, refused before decryption | TV-07 | `Ok`, `Decompress` | FS-53, FS-11, T-39 |
+| Zstd frame holding more or less than it declares; content size missing or other than `plain_len`; content size in a wider field than needed (four or eight bytes for 5, four for 300); checksum; dictionary ID; reserved bit; unused bit; a window descriptor in place of a single segment, of 2^20 or 2^21 bytes; skippable frame before, after or alone; two frames; a trailing byte; a frame cut off in its last byte, after the magic number and descriptor, inside a two-byte content size or inside a block header; a valid header followed by a block of the reserved type 3; a raw block of exactly 128 KiB, the block maximum, and a compressed block of exactly 128 KiB followed by a raw block of 4 bytes are `Ok` (libzstd up to 1.5.2 refused the compressed one, zstd's decompressor errata) | TV-07 | `Decompress`, `Ok` | FS-53, T-39 |
+| A block over `min(plain_len, 128 KiB)`: one RLE block of 2^20 zeros and one raw block of 128 KiB + 1 bytes, which libzstd 1.5.7 decodes in one pass; an RLE block of 6 bytes in a frame of 5 | TV-07 | `Decompress` | FS-53, T-39 |
+| Raw payload one byte shorter or longer than `plain_len` | TV-07 | `Decompress` | FS-53, T-39 |
+| A frame of exactly 15/16 of `plain_len` (45 bytes for 48) is `Ok`; one that saves less (46 for 49, or a raw-block frame longer than its chunk) breaks the store-raw rule, also with a wrong blob ID | TV-07 | `Ok`, `Decompress` | FS-53, FS-56, FS-93, T-40 |
+| Secret-class chunk with `comp = 1`, also with a bad frame | TV-07 | `Padding` | FS-53, FS-93, T-40 |
+| Bad frame, or a raw payload other than `plain_len` bytes, and a wrong blob ID together | TV-07 | `Decompress` | FS-56, FS-93 |
+| Meta blob opened with another kind byte, epoch, blob ID, vault or KEK | TV-07 | `Decrypt` | FS-57, M-8, T-35 |
 | Argon2id `m`, `t` or `p` below the floor; above a ceiling; `m × t` over the cap | TV-08 | `KdfBelowFloor`, `KdfAboveCeiling` | FS-41, M-10, T-26 |
 | KDF salt or parameter changed in the slot; unknown key added | TV-08 | `Decrypt` | FS-40, M-10 |
 | Retired epoch file reappears | TV-09 | `Retired` | FS-47, M-34 |
@@ -1491,7 +1522,7 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | T-36 No key commitment | FS-27, FS-28 |
 | T-37 Key substitution | FS-02, FS-46, FS-75 |
 | T-38 Nonce misuse | FS-05, FS-29 |
-| T-39 Parser bugs | FS-08–FS-11, FS-60, FS-62, FS-94 |
+| T-39 Parser bugs | FS-08–FS-11, FS-53, FS-54, FS-56, FS-60, FS-62, FS-94 |
 | T-40 Compression size oracle | FS-53 |
 | T-41 Rollback | FS-68, FS-80, FS-81 (per device in P1; full in P4) |
 | T-42 Freeze | FS-83 (*P4*) |
@@ -1506,8 +1537,8 @@ Files are modelled on [Wycheproof](https://github.com/C2SP/wycheproof) (`testGro
 | T-82 Hybrid KEM pitfalls | FS-46 (*P4*) |
 | T-81 Repeated randomness | FS-01, FS-29 |
 | T-83 Ambiguous encodings | FS-08, FS-13, FS-14, FS-66 |
-| T-84 Chunk-boundary fingerprinting | FS-52, FS-59, FS-62 |
-| T-85 Deduplication oracle | FS-55 |
+| T-84 Chunk-boundary fingerprinting | FS-52, FS-54, FS-59, FS-62 |
+| T-85 Deduplication oracle | FS-55, FS-56 |
 | T-86 Tree tampering | FS-72 |
 | T-87 Retention outlives retirement | FS-47, FS-48 |
 | T-90 Concurrent writers and crashes | FS-87, FS-89 |
@@ -1542,6 +1573,7 @@ All three are tracked in [threat-model section 14](threat-model.md#14-open-quest
 
 | Version | Date | Change |
 | --- | --- | --- |
+| v0.8 | 2026-11-10 | From the chunking, compression and padding item (E1, E2, E3) in `crypthix-core`; no valid bytes change, but readers reject more. FS-52 states the FastCDC cut rule and the masks and pins `fastcdc` 5.0.0 as the reference; after review, secret-class objects are cut at fixed 1 MiB steps with no gear-table lookup instead of with FastCDC, since the loop leaks bits of the bytes through cache timing and their lengths feed gear-table recovery while they never deduplicate (writers change, readers do not); FS-52 also says Padmé only coarsens chunk sizes and packs hide them. FS-53 says the separation of attacker data from secrets holds only for secret-class objects, and names ordinary objects of mixed trust as a residual (T-40). FS-55 and 2.1 add that equal chunks inside one version of an ordinary object share a keyed ID, which shows how many repeat. FS-53 pins libzstd 1.5.7, says the compressed length is the frame's, requires `payload_len = plain_len` for `comp = 0`, lists the reader's frame checks (after review, a single segment, which is all libzstd writes for a chunk of at most 1 MiB, so no window descriptor and a window of `plain_len`; the unused bit clear and the content size in its shortest field, which libzstd 1.5.7 does not check; every block at most `min(plain_len, 128 KiB)`, an RLE block counting what it regenerates, which libzstd 1.5.7 does not check when it decodes a frame in one pass; acceptance defined as what libzstd 1.5.7 decodes after those checks, in place of "frames decode under any version"), makes a reader enforce the store-raw rule, so a chunk has one encoding, and makes a compressed chunk of a secret-class object `Padding`. FS-54 gives its check order and makes `payload_len > 2^20` `Limit`. FS-55: `blob_id` is keyed exactly for ordinary objects of two or more chunks, and the reader derives the kind from the manifest; the policy switch for reuse is dropped, since a path that must not reuse chunks is secret class. FS-56 checks keyed IDs only and gives the data-blob open order, with the store-raw rule before the frame checks in step 5. FS-28: a seal shorter than its overhead is `Truncated`. TV-07 added, with an independent byte-at-a-time chunker in the generator and hand-built zstd frames, and with secret-class `Chunking` cases (`SecretFixed`; every `Chunking` test names its `class`); `CutEdges` cases, found by search and checked by the generator, put a cut at the minimum and one past it, at the switch of masks, at the last position tested, and after a pattern only at the maximum, and give an odd last byte that would match if tested and, after review, a file between 256 KiB and 1 MiB in which no position matches, so it is one chunk; a `pattern` input is a short byte string repeated to `length`; more negative rows in 20.4, among them a raw payload of the wrong length with a wrong blob ID (`Decompress`), a meta blob too short to be a seal or with an all-zero nonce, a block of the reserved type 3 (`Decompress`) and raw and compressed blocks of exactly 128 KiB (`Ok`; the compressed one hand-built, as libzstd's encoder never writes it and libzstd up to 1.5.2 refused it, and followed by a raw block of 4 bytes so a single segment's window holds it), and after review a window descriptor (`Decompress`, no longer `Ok` at 2^20), blocks over the block maximum (`BlockSize`), frames cut off inside the header, a raw payload one byte longer than `plain_len`, a frame breaking the store-raw rule and one exactly at it (`StoreRaw`), and a data blob of `plain_len` 2^20 (`Ok`); a frame with a run of more than 1,024 zero bytes is given as `frameHead`, `frameZeros` and `frameTail`, and an all-zero plaintext of more than 1,024 bytes as `plaintextZeros`. FS-11 lists the `payload_len` limit of FS-54 and makes `plain_len` above 2^20 its one `Decompress` exception. FS-94: decoding vectors give the results FS-53 defines through libzstd 1.5.7, in place of passing under any version. FS-55 names in-object reuse as an injection oracle for ordinary objects of mixed trust (T-85) |
 | v0.7 | 2026-11-08 | From the protected key memory item (O1); no bytes change. FS-31's protected memory is the key pool of `crypthix-crypto::secure_mem`. FS-28: no protected memory for the plaintext is a memory error, never `Decrypt` |
 | v0.6 | 2026-10-30 | From the crypto wrappers item (`crypthix-crypto`). Every nonce that was random is now hedged (FS-29, FS-55, FS-57, FS-60), because the kernel reseeds after a VM restore only with a VM generation ID (FS-01, T-81); readers are unaffected, since Open reads the nonce from the seal. FS-29 also says a failed RNG seals nothing, states that the equality bound is about privacy and the SIV distinctness bound, and FS-25 names CX-AEAD's internal labels as its one exception. FS-28 separates key-wrap labels from data labels and makes an all-zero nonce `ZeroValue`; the path index text says hedged. TV-05 has a hedged pair with replayed randomness and an all-zero nonce. FS-14 also rejects mixed-order public keys (`WeakKey`): `verify_strict` alone accepts them, as Wycheproof tcId 160 to 180 and speccheck case 3 show. TV-04 and TV-05 added; the generator computes them with its own section 7 code (FS-94), and `expect` may name `Commitment` and `AeadTag` in TV-05 only. The RFC and XChaCha draft vectors are transcribed to JSON (20.1). OQ-13 decided: no FIPS mode in format 0 |
 | v0.5 | 2026-10-29 | From the fuzzing and test-harness item; no valid bytes change. `tests/` is its own workspace, holding the generator and the fuzz targets (20.1). The vector schema is draft 2020-12; `seed` and `zstd` are optional for sets with no randomness or compression, and sets may add header strings (20.2). The seeded generator stream arrives with `crypthix-crypto` (FS-94). External vectors: Wycheproof, BLAKE3 and ed25519-speccheck vendored unchanged; RFC vectors are transcribed with their runners |
@@ -1573,6 +1605,7 @@ All three are tracked in [threat-model section 14](threat-model.md#14-open-quest
 - [Share with Care: Breaking E2EE in Nextcloud (ePrint 2024/546)](https://eprint.iacr.org/2024/546)
 - [Zero Knowledge (About) Encryption: A Comparative Security Analysis of Three Cloud-based Password Managers (ePrint 2026/058)](https://eprint.iacr.org/2026/058)
 - [Breaking and Fixing Content-Defined Chunking (ePrint 2025/558)](https://eprint.iacr.org/2025/558) · [ePrint 2025/532](https://eprint.iacr.org/2025/532)
+- Fábrega et al., [Injection Attacks Against End-to-End Encrypted Applications](https://arxiv.org/abs/2411.09228) (IEEE S&P 2024) and [Mitigating Injection Attacks against E2EE Applications via View-Based Partitioning](https://www.usenix.org/conference/usenixsecurity25/presentation/fabrega-partitioning) (USENIX Security 2025)
 
 **Standards and constructions**
 - [RFC 9771: Properties of AEAD algorithms](https://datatracker.ietf.org/doc/rfc9771/) · [Bellare–Hoang, committing AE (ePrint 2022/268)](https://eprint.iacr.org/2022/268) · [CTX (ePrint 2022/1260)](https://eprint.iacr.org/2022/1260)

@@ -76,6 +76,14 @@ deny = [
     "aes", "aes-gcm-siv", "aes-siv", "blake2b_simd", "boring", "crypto_box", "crypto_secretbox", "ecdsa",
     "ed25519-compact", "ed25519-zebra", "k256", "libsodium-sys", "md-5", "openssl-sys", "orion", "p256",
     "pbkdf2", "rsa", "rust-argon2", "scrypt", "sha1", "sha3", "sodiumoxide", "xsalsa20poly1305",
+    # Compression and chunking live in crypthix-core alone, so the rule that secret files are
+    # never compressed (FS-53, T-40) and the pinned zstd and FastCDC versions (FS-52, FS-53)
+    # have one home. fastcdc is only the differential oracle of core's own chunker, in tests;
+    # the vector generator and the fuzz harness build and check frames independently.
+    { crate = "zstd-safe", wrappers = ["crypthix-core", "crypthix-vector-gen", "crypthix-fuzz-harness"], reason = "compression lives in crypthix-core (FS-53, T-40)" },
+    { crate = "zstd-sys", wrappers = ["zstd-safe"], reason = "reached only through zstd-safe" },
+    { crate = "zstd", reason = "compression lives in crypthix-core, through zstd-safe (FS-53, T-40)" },
+    { crate = "fastcdc", wrappers = ["crypthix-core", "crypthix-fuzz-harness"], reason = "test oracle only; core has its own keyed chunker (FS-52)" },
     # Keys and plaintext live in crypthix-crypto::secure_mem (O1, T-31), so no second allocator
     # for secrets: memsec ignores mlock failures, the others lack memfd_secret or are unmaintained.
     "clear_on_drop", "memsec", "memsecurity", "secmem-alloc", "secrets",
@@ -94,6 +102,27 @@ deny = ["reduced-round"]
 [[bans.features]]
 crate = "curve25519-dalek"
 deny = ["legacy_compatibility"]
+
+# zstd as FS-53 pins it: the bundled library built by zstd-sys's own build script with `cc`.
+# An exact allow list rather than a deny list, so a feature a later zstd-sys or zstd-safe
+# release adds (another way to link a system libzstd, a new build mode) fails until someone
+# reviews it. Our build enables no feature of either crate: not `pkg-config` or `non-cargo`
+# (a system libzstd; `non-cargo` emits no link metadata, so whatever libzstd the linker finds
+# is used), `cmake`, `debug` (DEBUGLEVEL=5, which traces internal state to standard error),
+# nor the legacy decoders, dictionary builder, experimental API, multithreading, `seekable`,
+# `bindgen` or zstd-safe's `with-rust-allocator`, which the format does not use and would only
+# widen the attack surface. `cargo xtask check-features` covers what features cannot express
+# (ZSTD_SYS_USE_PKG_CONFIG, `links` overrides, `[patch]`), and `cargo xtask check-zstd-link`
+# checks the built library is the vendored one, linked statically.
+[[bans.features]]
+crate = "zstd-sys"
+allow = []
+exact = true
+
+[[bans.features]]
+crate = "zstd-safe"
+allow = []
+exact = true
 
 [sources]
 unknown-registry = "deny"

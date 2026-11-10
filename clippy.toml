@@ -1,3 +1,3 @@
-doc-valid-idents = ["CryptHix", "RabbitMQ", "WinFsp", "FSKit", "BPF-LSM", ".."]
+doc-valid-idents = ["CryptHix", "RabbitMQ", "WinFsp", "FSKit", "BPF-LSM", "FastCDC", ".."]
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true

@@ -7,55 +7,95 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use crate::process::{cargo, repo_root, require_tool, run_status};
 
-/// A fuzz target in `tests/fuzz/fuzz_targets`, with the dictionary it uses.
+/// A fuzz target in `tests/fuzz/fuzz_targets`, with the dictionary it uses and the longest input
+/// libFuzzer may make for it.
 #[derive(Clone, Copy, Debug)]
 struct FuzzTarget {
     name: &'static str,
     dictionary: Option<&'static str>,
+    /// libFuzzer's `-max_len`. It also truncates longer corpus files, so it must hold the
+    /// largest seed the vectors give the target; `run_fuzz` fails if one is longer.
+    max_len: usize,
 }
 
+/// `-max_len` for targets whose inputs are short: small inputs keep the fuzzer fast.
+const DEFAULT_MAX_LEN: usize = 4096;
+
 /// Every fuzz target; a test checks this against `tests/fuzz/fuzz_targets`.
-const FUZZ_TARGETS: [FuzzTarget; 9] = [
+const FUZZ_TARGETS: [FuzzTarget; 13] = [
     FuzzTarget {
         name: "preamble",
         dictionary: None,
+        // The keyring vectors at their 4096-byte body cap, with the preamble before it.
+        max_len: 8 * 1024,
     },
     FuzzTarget {
         name: "cbor_document",
         dictionary: Some("cbor.dict"),
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "cbor_differential",
         dictionary: Some("cbor.dict"),
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "cbor_structured",
         dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "store_key",
         dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "config_toml",
         dictionary: Some("toml.dict"),
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "id_text",
         dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "cx_open",
         dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
     },
     FuzzTarget {
         name: "verifying_key",
         dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
+    },
+    FuzzTarget {
+        name: "inner_plaintext",
+        dictionary: Some("zstd.dict"),
+        max_len: DEFAULT_MAX_LEN,
+    },
+    FuzzTarget {
+        name: "decompress",
+        dictionary: Some("zstd.dict"),
+        // Frames whose 128 KiB blocks reach zstd's block edges, about 131 KB with the length
+        // prefix and frame header.
+        max_len: 144 * 1024,
+    },
+    FuzzTarget {
+        name: "data_blob_open",
+        dictionary: Some("zstd.dict"),
+        // Data blobs of TV-07, about 5 KB.
+        max_len: 8 * 1024,
+    },
+    FuzzTarget {
+        name: "chunker",
+        dictionary: None,
+        max_len: DEFAULT_MAX_LEN,
     },
 ];
 
@@ -193,6 +233,7 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
     run_generator(&["seeds", &corpus_arg])?;
     for target in targets {
         let name = target.name;
+        check_seed_lengths(target, &corpus.join(name))?;
         println!("fuzz: {name} for {seconds} s");
         // libFuzzer refuses a corpus directory that does not exist, and structure-aware targets
         // get no seeds from the vectors.
@@ -222,12 +263,8 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
             .arg(tests_dir().join("fuzz").join("regressions").join(name))
             .arg("--")
             .arg(format!("-max_total_time={seconds}"))
-            .args([
-                "-max_len=4096",
-                "-timeout=10",
-                "-rss_limit_mb=2048",
-                "-malloc_limit_mb=64",
-            ]);
+            .arg(format!("-max_len={}", target.max_len))
+            .args(["-timeout=10", "-rss_limit_mb=2048", "-malloc_limit_mb=64"]);
         if let Some(dictionary) = target.dictionary {
             let path = tests_dir().join("fuzz").join("dicts").join(dictionary);
             let mut flag = OsString::from("-dict=");
@@ -243,6 +280,31 @@ fn run_fuzz(targets: &[FuzzTarget], seconds: u64) -> Result<(), String> {
                  and save it under tests/fuzz/regressions/{name}/ (see tests/README.md)"
             ),
         )?;
+    }
+    Ok(())
+}
+
+/// Fails if a seed in `dir` is longer than the target's `max_len`, which libFuzzer would
+/// silently cut short. A missing directory has no seeds.
+fn check_seed_lengths(target: &FuzzTarget, dir: &Path) -> Result<(), String> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot list {}: {error}", dir.display()))?;
+        let len = entry
+            .metadata()
+            .map_err(|error| format!("cannot read {}: {error}", entry.path().display()))?
+            .len();
+        if usize::try_from(len).map_or(true, |len| len > target.max_len) {
+            return Err(format!(
+                "seed {} is {len} bytes, over the {} target's max_len of {}: libFuzzer would \
+                 truncate it; raise max_len in xtask/src/side.rs",
+                entry.path().display(),
+                target.name,
+                target.max_len
+            ));
+        }
     }
     Ok(())
 }
@@ -329,5 +391,29 @@ mod tests {
             .collect();
         listed.sort();
         assert_eq!(listed, on_disk, "FUZZ_TARGETS must list every fuzz binary");
+    }
+
+    #[test]
+    fn a_seed_over_max_len_fails_the_run() {
+        let dir = env::temp_dir().join(format!("xtask-seed-lengths-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temporary directory");
+        let target = FuzzTarget {
+            name: "test",
+            dictionary: None,
+            max_len: 8,
+        };
+        fs::write(dir.join("short"), [0; 8]).expect("seed written");
+        let fits = check_seed_lengths(&target, &dir);
+        fs::write(dir.join("long"), [0; 9]).expect("seed written");
+        let over = check_seed_lengths(&target, &dir);
+        fs::remove_dir_all(&dir).expect("temporary directory removed");
+        assert_eq!(fits, Ok(()));
+        let error = over.expect_err("a 9-byte seed passed max_len 8");
+        assert!(error.contains("9 bytes"), "{error}");
+        assert_eq!(
+            check_seed_lengths(&target, &dir),
+            Ok(()),
+            "a missing corpus has no seeds"
+        );
     }
 }

@@ -10,7 +10,7 @@ use std::env;
 use std::process::Command;
 
 use crate::process::{cargo, repo_root, require_tool, run_status};
-use crate::{commits, docs_check, features, pre_commit, side, vendored};
+use crate::{commits, docs_check, features, pre_commit, side, vendored, zstd_link};
 
 /// One CI job.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +21,8 @@ enum Job {
     Pr,
     /// Clippy on both workspaces.
     Clippy,
-    /// The main workspace tests and doctests.
+    /// The main workspace tests and doctests, then the check that the tests linked the
+    /// vendored libzstd.
     Test,
     /// Rustdoc with warnings as errors.
     Doc,
@@ -227,7 +228,9 @@ fn test() -> Result<(), String> {
     run_status(
         Command::new(cargo()).args(["test", "--doc", "--workspace", "--all-features", "--locked"]),
         "doctests failed (see above)",
-    )
+    )?;
+    // After a build, so the check reuses its zstd-sys build script run.
+    zstd_link::check(&[])
 }
 
 fn doc() -> Result<(), String> {
