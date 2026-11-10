@@ -384,7 +384,8 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.mutants == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # A PR that adds a whole module brings a few hundred mutants, tested one at a time.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
