@@ -1,6 +1,6 @@
 [package]
 name = "crypthix-fuzz"
-description = "cargo-fuzz binaries for the crypthix-types parsers and crypthix-crypto inputs; each calls crypthix-fuzz-harness."
+description = "cargo-fuzz binaries for the crypthix-types parsers and the crypthix-crypto and crypthix-core inputs; each calls crypthix-fuzz-harness."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -77,6 +77,34 @@ bench = false
 [[bin]]
 name = "verifying_key"
 path = "fuzz_targets/verifying_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "inner_plaintext"
+path = "fuzz_targets/inner_plaintext.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decompress"
+path = "fuzz_targets/decompress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "data_blob_open"
+path = "fuzz_targets/data_blob_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chunker"
+path = "fuzz_targets/chunker.rs"
 test = false
 doc = false
 bench = false

@@ -20,7 +20,7 @@ struct FuzzTarget {
 }
 
 /// Every fuzz target; a test checks this against `tests/fuzz/fuzz_targets`.
-const FUZZ_TARGETS: [FuzzTarget; 9] = [
+const FUZZ_TARGETS: [FuzzTarget; 13] = [
     FuzzTarget {
         name: "preamble",
         dictionary: None,
@@ -55,6 +55,22 @@ const FUZZ_TARGETS: [FuzzTarget; 9] = [
     },
     FuzzTarget {
         name: "verifying_key",
+        dictionary: None,
+    },
+    FuzzTarget {
+        name: "inner_plaintext",
+        dictionary: Some("zstd.dict"),
+    },
+    FuzzTarget {
+        name: "decompress",
+        dictionary: Some("zstd.dict"),
+    },
+    FuzzTarget {
+        name: "data_blob_open",
+        dictionary: Some("zstd.dict"),
+    },
+    FuzzTarget {
+        name: "chunker",
         dictionary: None,
     },
 ];

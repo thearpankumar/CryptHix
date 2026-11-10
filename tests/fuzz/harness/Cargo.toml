@@ -10,11 +10,14 @@ publish.workspace = true
 
 [dependencies]
 arbitrary = "1.5.0"
+crypthix-core = { version = "0.0.0", path = "../../../crates/engine/core" }
 crypthix-crypto = { path = "../../../crates/foundation/crypto", features = ["vectors"] }
 crypthix-types = { version = "0.0.0", path = "../../../crates/foundation/types" }
 curve25519-dalek = { version = "5.0.0", default-features = false }
 ed25519-dalek = { version = "3.0.0", default-features = false, features = ["fast"] }
+fastcdc = "5.0.0"
 minicbor = { version = "2.3.1", default-features = false, features = ["std", "half"] }
+zstd-safe = { version = "8.2.0", default-features = false }
 
 [lints]
 workspace = true
