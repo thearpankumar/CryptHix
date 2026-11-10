@@ -1,6 +1,13 @@
 # cargo-mutants settings (https://mutants.rs/filter_mutants.html).
 
-# `^` on flags with no bit in common is `|`, so these mutants cannot change behaviour.
 exclude_re = [
-    'replace \| with \^ in (map_secret|anonymous|map_marker)$',
+    # `^` on flags with no bit in common is `|`, so these mutants cannot change behaviour.
+    'replace \| with \^ in (map_secret|anonymous|map_marker|frame_check)$',
+    # padme(2) is 2 by the general formula too (e = 1, s = 1, no low bits to clear).
+    'replace < with <= in padme$',
+    # crypthix-core's Decompressor::stream: frame_check and an output buffer of exactly the
+    # declared content size let zstd finish the frame in its first call, so whether the loop
+    # breaks on hint 0 or on no progress never shows; after the frame a further call reads
+    # nothing and returns a non-zero hint. Both checks stay as defence in depth.
+    'replace == with != in stream$',
 ]
