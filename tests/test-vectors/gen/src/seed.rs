@@ -1,6 +1,6 @@
 //! Vector inputs as fuzz seeds.
 
-use crate::test_case::Input;
+use crate::test_case::{Input, TestCase};
 use crate::vector_set::sets;
 
 /// Which fuzz targets a seed feeds.
@@ -20,6 +20,16 @@ pub enum SeedTarget {
     Sealed,
     /// An Ed25519 public key, signature and message.
     Signed,
+    /// A data blob's inner plaintext.
+    Inner,
+    /// A zstd frame after its `plain_len` as a 24-bit big-endian number.
+    Frame,
+    /// A chunk's plaintext.
+    Chunk,
+    /// The input of the `chunker` target: a 24-bit big-endian length, four read sizes, the
+    /// chunker seed, the vault ID, the data key (all zero for zeros or a pattern) and the
+    /// pattern, which the target repeats over the file.
+    Chunker,
 }
 
 impl SeedTarget {
@@ -32,8 +42,12 @@ impl SeedTarget {
             SeedTarget::StoreKey => &["store_key"],
             SeedTarget::IdText => &["id_text"],
             SeedTarget::Config => &["config_toml"],
-            SeedTarget::Sealed => &["cx_open"],
+            SeedTarget::Sealed => &["cx_open", "data_blob_open"],
             SeedTarget::Signed => &["verifying_key"],
+            SeedTarget::Inner => &["inner_plaintext", "data_blob_open"],
+            SeedTarget::Frame => &["decompress"],
+            SeedTarget::Chunk => &["data_blob_open"],
+            SeedTarget::Chunker => &["chunker"],
         }
     }
 }
@@ -101,6 +115,66 @@ const SIGNED: [(&str, &str); 3] = [
     ),
 ];
 
+/// The read sizes of the chunker seeds: a 1-byte read, an interrupted read, then reads of
+/// about 1 MiB and 64 KiB (see the `chunker` fuzz target).
+const CHUNKER_READS: [u8; 4] = [0, 1, 0xff, 0x0f];
+
+/// The integer input `key` of `test`.
+fn int_input(test: &TestCase, key: &str) -> Option<i64> {
+    test.inputs.iter().find_map(|(name, input)| match input {
+        Input::Int(value) if *name == key => Some(*value),
+        _ => None,
+    })
+}
+
+/// The byte input `key` of `test`.
+fn bytes_input<'a>(test: &'a TestCase, key: &str) -> Option<&'a [u8]> {
+    test.inputs.iter().find_map(|(name, input)| match input {
+        Input::Bytes(bytes) if *name == key => Some(bytes.as_slice()),
+        _ => None,
+    })
+}
+
+/// A 24-bit big-endian length, then `bytes`.
+///
+/// # Panics
+///
+/// If `len` is negative or does not fit in 24 bits: the vectors never hold such a length.
+fn framed(len: i64, bytes: &[u8]) -> Vec<u8> {
+    let len = u32::try_from(len)
+        .ok()
+        .filter(|len| *len < 1 << 24)
+        .expect("a vector length fits in 24 bits");
+    [&len.to_be_bytes()[1..], bytes].concat()
+}
+
+/// The `chunker` target's input for a TV-07 chunking test: its length, the read sizes, the
+/// chunker seed, the vault ID and the data key, all zero for a run of zeros or a pattern, then
+/// the pattern, which the target repeats over the zeros.
+fn chunker_seed(test: &TestCase) -> Option<Vec<u8>> {
+    let length = int_input(test, "length").or_else(|| int_input(test, "zeros"))?;
+    let data_key = bytes_input(test, "dataKey").unwrap_or(&[0; 32]);
+    let mut out = framed(length, &CHUNKER_READS);
+    out.extend_from_slice(bytes_input(test, "chunkerSeed")?);
+    out.extend_from_slice(bytes_input(test, "vaultId")?);
+    out.extend_from_slice(data_key);
+    out.extend_from_slice(bytes_input(test, "pattern").unwrap_or_default());
+    Some(out)
+}
+
+/// The `decompress` target's input for a TV-07 frame given as `frameHead`, `frameZeros` zero
+/// bytes and `frameTail`: its `plainLen`, then the frame.
+fn zero_run_frame(test: &TestCase) -> Option<Vec<u8>> {
+    let zeros = usize::try_from(int_input(test, "frameZeros")?).ok()?;
+    let frame = [
+        bytes_input(test, "frameHead")?,
+        &vec![0; zeros],
+        bytes_input(test, "frameTail")?,
+    ]
+    .concat();
+    Some(framed(int_input(test, "plainLen")?, &frame))
+}
+
 /// Every vector input that a fuzz target can start from, plus a few configs, ID texts and
 /// signed messages.
 #[must_use]
@@ -116,6 +190,20 @@ pub fn seeds() -> Vec<Seed> {
                     ("cbor", Input::Bytes(bytes)) => (SeedTarget::Cbor, bytes.clone()),
                     ("path", Input::Text(path)) => (SeedTarget::StoreKey, path.as_bytes().to_vec()),
                     ("sealed", Input::Bytes(bytes)) => (SeedTarget::Sealed, bytes.clone()),
+                    ("inner", Input::Bytes(bytes)) => (SeedTarget::Inner, bytes.clone()),
+                    ("chunk", Input::Bytes(bytes)) => (SeedTarget::Chunk, bytes.clone()),
+                    ("frame", Input::Bytes(bytes)) => match int_input(test, "plainLen") {
+                        Some(plain_len) => (SeedTarget::Frame, framed(plain_len, bytes)),
+                        None => continue,
+                    },
+                    ("frameHead", Input::Bytes(_)) => match zero_run_frame(test) {
+                        Some(bytes) => (SeedTarget::Frame, bytes),
+                        None => continue,
+                    },
+                    ("chunkerSeed", Input::Bytes(_)) => match chunker_seed(test) {
+                        Some(bytes) => (SeedTarget::Chunker, bytes),
+                        None => continue,
+                    },
                     _ => continue,
                 };
                 // The input name keeps two inputs of one test apart.
@@ -150,4 +238,21 @@ pub fn seeds() -> Vec<Seed> {
         });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn framed_lengths_are_24_bit_big_endian() {
+        assert_eq!(framed(0x01_02_03, &[9]), [1, 2, 3, 9]);
+        assert_eq!(framed((1 << 24) - 1, &[]), [0xff; 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "fits in 24 bits")]
+    fn framed_rejects_a_length_of_2_pow_24() {
+        let _ = framed(1 << 24, &[]);
+    }
 }

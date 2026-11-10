@@ -19,4 +19,5 @@ description = "Generated format vectors: keys drawn from the public seed in each
 paths = [
     '''^tests/test-vectors/crypthix/v0/tv-04-domain-separation\.json$''',
     '''^tests/test-vectors/crypthix/v0/tv-05-cx-aead\.json$''',
+    '''^tests/test-vectors/crypthix/v0/tv-07-chunk-blob\.json$''',
 ]

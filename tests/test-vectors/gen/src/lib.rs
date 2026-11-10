@@ -7,10 +7,13 @@
 //! crate's own reading of format spec section 7 ([`cx`]), never with `crypthix-crypto`'s
 //! primitives, so the two implementations check each other.
 
+mod cdc;
 mod check;
 mod cx;
+mod inner;
 mod json;
 mod labels;
+mod padme;
 mod pre;
 mod seed;
 mod test_case;
@@ -18,8 +21,10 @@ mod tv02;
 mod tv03;
 mod tv04;
 mod tv05;
+mod tv07;
 mod tv17;
 mod vector_set;
+mod zstd_frame;
 
 pub use check::{Mismatch, Problem, check};
 pub use json::Json;
