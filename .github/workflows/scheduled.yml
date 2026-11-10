@@ -52,6 +52,10 @@ jobs:
           - id_text
           - cx_open
           - verifying_key
+          - inner_plaintext
+          - decompress
+          - data_blob_open
+          - chunker
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -114,7 +118,7 @@ jobs:
         run: cargo bench --workspace --no-run --locked
 
   miri:
-    name: Miri (crypthix-types, crypthix-crypto) and nightly doctests
+    name: Miri (crypthix-types, crypthix-crypto, crypthix-core) and nightly doctests
     if: github.event.schedule != '47 3 * * 1'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -135,7 +139,13 @@ jobs:
       # Under Miri secure_mem uses its Heap backing, so Miri checks the slot and arena pointer
       # logic, SecretVec slices, the open paths and the wipes; the mmap, mprotect, mlock and
       # memfd_secret code is compiled out and is covered by the native Linux tests instead
-      # (tests/secure_mem_linux.rs and the Linux unit tests).
+      # (tests/secure_mem_linux.rs and the Linux unit tests). For crypthix-core too only the unit
+      # tests run: Padmé, the inner plaintext, the frame header checks, the cut loop on short input,
+      # the gear table, key derivation, the meta blobs, and data blobs with raw payloads opened end
+      # to end (the plain_len cap, Decrypt on each AAD field, Padding, Limit, a payload of the
+      # wrong length and Binding), since the decompressor makes its zstd context only at the
+      # first frame. zstd is C, which Miri cannot run, so the tests that call it are ignored
+      # there, as are megabyte inputs and a 2 MiB window.
       - name: cargo miri test
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
@@ -143,6 +153,7 @@ jobs:
         run: |
           rustup run nightly-2026-10-15 cargo miri test -p crypthix-types --locked
           rustup run nightly-2026-10-15 cargo miri test -p crypthix-crypto --lib --locked
+          rustup run nightly-2026-10-15 cargo miri test -p crypthix-core --lib --locked
       # Only nightly rustdoc checks the error code pinned on a `compile_fail` doctest (such as
       # `compile_fail,E0277`); stable runs the doctests on every PR but accepts any error.
       - name: Doctest error codes
@@ -186,8 +197,11 @@ jobs:
           cache-key: platform
       # xtask is deliberately cross-platform: the pre-commit hook runs it on every OS.
       - run: cargo test --workspace --all-features --locked
-      # secure_mem's cfg branches differ per OS, so lint the crate where they are compiled.
-      - run: cargo clippy -p crypthix-crypto --all-features --all-targets --locked -- -D warnings
+      # secure_mem's cfg branches differ per OS, so lint the crate where they are compiled, and
+      # crypthix-core with it, whose zstd-sys builds libzstd with each platform's C compiler.
+      - run: >-
+          cargo clippy -p crypthix-crypto -p crypthix-core --all-features --all-targets --locked
+          -- -D warnings
 
   # The crypto tests in kernels with and without the CVE-2026-93243 fix (kernel-test.yml), so
   # the nightly run also notices a change on the runner image or in the tools that breaks them.
