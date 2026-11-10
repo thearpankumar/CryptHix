@@ -156,8 +156,8 @@ fn checks() -> Result<(), String> {
     )?;
 
     // `tests/` is its own workspace, built on crypthix-types, crypthix-crypto and crypthix-core,
-    // so a change to any of them can break it. The cargo-fuzz crate is left out: libFuzzer needs a C++ compiler
-    // even to check, and its binaries only call the harness.
+    // so a change to any of them can break it. The cargo-fuzz crate is left out: libFuzzer needs
+    // a C++ compiler even to check, and its binaries only call the harness.
     let side_changed = staged
         .iter()
         .any(|path| SIDE_INPUTS.iter().any(|prefix| path.starts_with(prefix)));

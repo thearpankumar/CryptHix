@@ -114,19 +114,26 @@ deny = ["reduced-round"]
 crate = "curve25519-dalek"
 deny = ["legacy_compatibility"]
 
-# zstd as FS-53 pins it: the bundled library built by zstd-sys's own build script with `cc`,
-# never through `cmake`, never a system one (through pkg-config, or `non-cargo`, which emits
-# no link metadata so whatever libzstd the linker finds is used), never the `debug` build
-# (DEBUGLEVEL=5, which traces internal state to standard error), and none of the legacy
-# decoders, dictionary builder, experimental API or multithreading, which the format does not
-# use and would only widen the attack surface.
+# zstd as FS-53 pins it: the bundled library built by zstd-sys's own build script with `cc`.
+# An exact allow list rather than a deny list, so a feature a later zstd-sys or zstd-safe
+# release adds (another way to link a system libzstd, a new build mode) fails until someone
+# reviews it. Our build enables no feature of either crate: not `pkg-config` or `non-cargo`
+# (a system libzstd; `non-cargo` emits no link metadata, so whatever libzstd the linker finds
+# is used), `cmake`, `debug` (DEBUGLEVEL=5, which traces internal state to standard error),
+# nor the legacy decoders, dictionary builder, experimental API, multithreading, `seekable`,
+# `bindgen` or zstd-safe's `with-rust-allocator`, which the format does not use and would only
+# widen the attack surface. `cargo xtask check-features` covers what features cannot express
+# (ZSTD_SYS_USE_PKG_CONFIG, `links` overrides, `[patch]`), and `cargo xtask check-zstd-link`
+# checks the built library is the vendored one, linked statically.
 [[bans.features]]
 crate = "zstd-sys"
-deny = ["legacy", "pkg-config", "non-cargo", "cmake", "debug", "zdict_builder", "experimental", "zstdmt", "seekable", "bindgen"]
+allow = []
+exact = true
 
 [[bans.features]]
 crate = "zstd-safe"
-deny = ["legacy", "pkg-config", "cmake", "debug", "zdict_builder", "experimental", "zstdmt", "seekable", "bindgen", "with-rust-allocator"]
+allow = []
+exact = true
 
 [sources]
 unknown-registry = "deny"
