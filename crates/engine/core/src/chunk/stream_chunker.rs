@@ -337,9 +337,14 @@ mod tests {
 
     #[test]
     fn reader_errors_are_returned() {
-        struct Broken;
+        /// Fails once; a second read means a hard error was retried like `Interrupted`.
+        struct Broken {
+            reads: usize,
+        }
         impl Read for Broken {
             fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                self.reads += 1;
+                assert_eq!(self.reads, 1, "a hard read error must not be retried");
                 Err(io::Error::other("disk"))
             }
         }
@@ -350,9 +355,13 @@ mod tests {
             }
         }
         let gear = table(1);
-        let mut chunker =
-            StreamChunker::with_params(&gear, ObjectClass::Ordinary, Broken, ChunkParams::SCALED)
-                .expect("window");
+        let mut chunker = StreamChunker::with_params(
+            &gear,
+            ObjectClass::Ordinary,
+            Broken { reads: 0 },
+            ChunkParams::SCALED,
+        )
+        .expect("window");
         assert!(matches!(chunker.next_chunk(), Err(StreamError::Io(_))));
         assert!(matches!(chunker.next_chunk(), Err(StreamError::Failed)));
         let mut chunker =
