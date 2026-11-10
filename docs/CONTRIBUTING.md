@@ -17,7 +17,7 @@ cargo fmt --all
 cargo xtask ci            # every job below; or name some: cargo xtask ci lint test
 ```
 
-If you change a parser or `crypthix-crypto`, also fuzz it for a few minutes on nightly, for example `cargo xtask fuzz cbor_differential --time 300` or `cargo xtask fuzz cx_open --time 300` (see [Testing](style-guide.md#testing)).
+If you change a parser, `crypthix-crypto` or the data path in `crypthix-core`, also fuzz it for a few minutes on nightly, for example `cargo xtask fuzz cbor_differential --time 300`, `cargo xtask fuzz cx_open --time 300` or `cargo xtask fuzz decompress --time 300` (see [Testing](style-guide.md#testing)).
 
 ## Commit messages
 
@@ -37,7 +37,7 @@ Every job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs one 
 | `deny` | cargo-deny on both lockfiles, unused dependencies | cargo-deny, [cargo-shear](https://github.com/Boshen/cargo-shear) |
 | `side` | The `tests/` workspace tests and `vectors --check` | |
 
-Pull requests also get an external link check ([lychee](https://lychee.cli.rs), `lychee.toml`) of the Markdown files they change, a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). These jobs and `pr` look at what a pull request changes, so they do not run on pushes to master, whose commits a pull request already checked. Each tool's `cargo xtask` error names how to install it. When `crypthix-crypto` or `crypthix-types` changes, and on master, `windows-clippy` lints `crypthix-crypto` for `x86_64-pc-windows-gnu`, cross-compiled on Linux, so the code `secure_mem` compiles on other systems is checked before the nightly platform runs; locally that is `cargo clippy -p crypthix-crypto --all-features --all-targets --target x86_64-pc-windows-gnu -- -D warnings`, with the target added (`rustup target add x86_64-pc-windows-gnu`) and MinGW's `x86_64-w64-mingw32-gcc` installed.
+Pull requests also get an external link check ([lychee](https://lychee.cli.rs), `lychee.toml`) of the Markdown files they change, a 20-second fuzz run of every target when a parser or the fuzz harness changes, and an advisory mutation test of the changed lines (cargo-mutants). These jobs and `pr` look at what a pull request changes, so they do not run on pushes to master, whose commits a pull request already checked. Each tool's `cargo xtask` error names how to install it. When `crypthix-crypto`, `crypthix-types` or `crypthix-core` changes, and on master, `windows-clippy` lints `crypthix-crypto` and `crypthix-core` for `x86_64-pc-windows-gnu`, cross-compiled on Linux, so the code `secure_mem` compiles on other systems, and the libzstd that `crypthix-core` builds from source, are checked before the nightly platform runs; locally that is `cargo clippy -p crypthix-crypto -p crypthix-core --all-features --all-targets --target x86_64-pc-windows-gnu -- -D warnings`, with the target added (`rustup target add x86_64-pc-windows-gnu`) and MinGW's `x86_64-w64-mingw32-gcc` installed.
 
 ### Kernel test
 

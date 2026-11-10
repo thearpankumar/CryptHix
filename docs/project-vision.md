@@ -442,7 +442,7 @@ Legend: **MVP** = first public release (0.1) · **v1** = 1.0 · **Later** = afte
 
 | ID | Feature | Description | Stage |
 | --- | --- | --- | --- |
-| E1 | Content-defined chunking | FastCDC chunking so edits only rewrite changed chunks; enables deduplication within a vault | MVP |
+| E1 | Content-defined chunking | FastCDC chunking with a secret per-vault gear table, so edits only rewrite changed chunks; a new version of an ordinary file reuses its unchanged chunks, with deduplication only inside one object, never across files and never for secret files ([format spec FS-55](format-spec.md#104-blobs)) | MVP |
 | E2 | Compression | zstd per chunk, skipped automatically for already-compressed data | MVP |
 | E3 | Size padding | Pad compressed chunks to size buckets so file sizes leak less | MVP |
 | E4 | Authenticated encryption | XChaCha20-Poly1305 with key commitment per chunk; AAD binds vault, object and DEK, and the signed manifest binds order, count and version ([format spec](format-spec.md)) | MVP |
