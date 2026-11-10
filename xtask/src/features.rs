@@ -19,6 +19,19 @@
 //! Compiler flags can do the same behind Cargo's back: `--cfg feature="vectors"` turns a feature
 //! on, and `--cfg getrandom_backend=...` replaces the kernel source of every key and nonce
 //! (FS-01). The check rejects either in `RUSTFLAGS` and in the repository's Cargo config files.
+//! It also rejects two ways to link a system libzstd instead of the bundled, pinned one (FS-53),
+//! which cargo-deny's bans on `zstd-sys` features cannot see: `ZSTD_SYS_USE_PKG_CONFIG` in those
+//! files or in the environment, and a `links` override for `zstd` (a `[target.<triple>.zstd]`
+//! table, or a `zstd` key under `[target.<triple>]`) in those files, which makes Cargo skip
+//! `zstd-sys`'s build script and link whatever the override names.
+//!
+//! These checks cover only the repository's own build environment: the process environment of
+//! the check and the Cargo config files inside the repository. A user-level
+//! `~/.cargo/config.toml`, one in `$CARGO_HOME` or in a directory above the repository, and
+//! `--config` on the command line are out of their reach. The backstop is the runtime check in
+//! `crypthix-core`: `Compressor::new`, and `Decompressor::decode` before its first call into
+//! libzstd, fail with `CompressError::Version` when the linked libzstd is not the version FS-53
+//! pins.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::env;
@@ -26,6 +39,7 @@ use std::fs;
 use std::process::Command;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package, PackageId};
+use toml::{Table, Value};
 
 use crate::process::{cargo, repo_root};
 
@@ -51,10 +65,17 @@ pub(crate) fn check() -> Result<(), String> {
     for package in metadata.workspace_packages() {
         problems.extend(manifest_problems(package, &guarded));
     }
+    let files = config_files();
     problems.extend(
-        flag_sources()
+        env_sources()
             .iter()
+            .chain(&files)
             .flat_map(|(source, text)| flag_problems(source, text)),
+    );
+    problems.extend(
+        files
+            .iter()
+            .flat_map(|(source, text)| links_problems(source, text)),
     );
     problems.extend(resolved_problems(&["--workspace"], &guarded)?);
     for package in dependents(&metadata, &crypto.id) {
@@ -263,9 +284,9 @@ fn resolved_problems(args: &[&str], guarded: &BTreeSet<String>) -> Result<Vec<St
         .map_err(|message| format!("cargo tree {}: {message}", args.join(" ")))
 }
 
-/// The compiler-flag settings a build reads: the `RUSTFLAGS` variables and the Cargo config files
-/// of both workspaces, as `(source, text)`.
-fn flag_sources() -> Vec<(String, String)> {
+/// The settings a build reads from the environment: the `RUSTFLAGS` variables and
+/// `ZSTD_SYS_USE_PKG_CONFIG`, as `(source, text)`.
+fn env_sources() -> Vec<(String, String)> {
     let variables = [
         "RUSTFLAGS",
         "CARGO_BUILD_RUSTFLAGS",
@@ -274,6 +295,15 @@ fn flag_sources() -> Vec<(String, String)> {
     let from_env = variables
         .iter()
         .filter_map(|name| env::var(name).ok().map(|value| ((*name).to_owned(), value)));
+    // Any value turns pkg-config on, so the variable's presence is reported, under its own name.
+    let zstd = env::var_os(ZSTD_PKG_CONFIG)
+        .map(|_| ("environment".to_owned(), ZSTD_PKG_CONFIG.to_owned()));
+    from_env.chain(zstd).collect()
+}
+
+/// The Cargo config files of both workspaces, as `(path, text)`. Files outside the repository
+/// are out of reach (see the module docs).
+fn config_files() -> Vec<(String, String)> {
     let root = repo_root();
     let files = [
         ".cargo/config.toml",
@@ -281,18 +311,50 @@ fn flag_sources() -> Vec<(String, String)> {
         "tests/.cargo/config.toml",
         "tests/.cargo/config",
     ];
-    let from_files = files.iter().filter_map(|file| {
-        fs::read_to_string(root.join(file))
-            .ok()
-            .map(|text| ((*file).to_owned(), text))
-    });
-    from_env.chain(from_files).collect()
+    files
+        .iter()
+        .filter_map(|file| {
+            fs::read_to_string(root.join(file))
+                .ok()
+                .map(|text| ((*file).to_owned(), text))
+        })
+        .collect()
 }
 
-/// Flags that turn on a feature or replace the `getrandom` backend.
+/// A `links` override for `zstd` in a Cargo config file: `[target.<triple>.zstd]`, which makes
+/// Cargo skip `zstd-sys`'s build script (it declares `links = "zstd"`) and link what the
+/// override names. A file that is not valid TOML is reported too, so it cannot hide one.
+fn links_problems(source: &str, text: &str) -> Vec<String> {
+    let config: Table = match text.parse() {
+        Ok(config) => config,
+        Err(error) => return vec![format!("{source} is not valid TOML: {error}")],
+    };
+    let Some(Value::Table(targets)) = config.get("target") else {
+        return Vec::new();
+    };
+    targets
+        .iter()
+        .filter(|(_, settings)| {
+            matches!(settings, Value::Table(settings) if settings.contains_key(ZSTD_LINKS))
+        })
+        .map(|(target, _)| {
+            format!(
+                "{source} overrides the `{ZSTD_LINKS}` library for {target}, linking a system \
+                 zstd instead of the pinned one (FS-53)"
+            )
+        })
+        .collect()
+}
+
+/// Flags that turn on a feature or replace the `getrandom` backend, and a system zstd.
 fn flag_problems(source: &str, text: &str) -> Vec<String> {
     let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
     let mut problems = Vec::new();
+    if compact.contains(ZSTD_PKG_CONFIG) {
+        problems.push(format!(
+            "{source} sets {ZSTD_PKG_CONFIG}, linking a system zstd instead of the pinned one (FS-53)"
+        ));
+    }
     if compact.contains("getrandom_backend") {
         problems.push(format!(
             "{source} sets getrandom_backend, replacing the kernel RNG (FS-01)"
@@ -305,6 +367,12 @@ fn flag_problems(source: &str, text: &str) -> Vec<String> {
     }
     problems
 }
+
+/// The variable that makes `zstd-sys` link a system libzstd through pkg-config.
+const ZSTD_PKG_CONFIG: &str = "ZSTD_SYS_USE_PKG_CONFIG";
+
+/// The `links` name of `zstd-sys`, which a `[target.<triple>.zstd]` table overrides.
+const ZSTD_LINKS: &str = "zstd";
 
 /// The guarded features in `cargo tree` lines of the form `<package> <version> (<path>)|<f,..>`.
 ///
@@ -458,6 +526,37 @@ mod tests {
         assert_eq!(
             flag_problems("config", "[alias]\nxtask = \"run\""),
             Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn a_system_zstd_through_pkg_config_is_rejected() {
+        let config = "[env]\nZSTD_SYS_USE_PKG_CONFIG = \"1\"\n";
+        let problems = flag_problems(".cargo/config.toml", config);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert_eq!(
+            flag_problems("environment", ZSTD_PKG_CONFIG).len(),
+            1,
+            "the set variable is reported"
+        );
+    }
+
+    #[test]
+    fn a_links_override_for_zstd_is_rejected() {
+        let table = "[target.x86_64-unknown-linux-gnu.zstd]\nrustc-link-lib = [\"zstd\"]\n";
+        assert_eq!(links_problems("config", table).len(), 1, "a table");
+        let dotted = "[target.aarch64-apple-darwin]\nzstd.rustc-link-search = [\"/opt\"]\n";
+        assert_eq!(links_problems("config", dotted).len(), 1, "a dotted key");
+        let inline = "target.x86_64-pc-windows-msvc.zstd = { rustc-link-lib = [\"zstd\"] }\n";
+        assert_eq!(links_problems("config", inline).len(), 1, "an inline table");
+        let fine = "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n\
+                    [target.x86_64-unknown-linux-gnu.lzma]\nrustc-link-lib = [\"lzma\"]\n\
+                    [alias]\nzstd = \"run\"\n";
+        assert_eq!(links_problems("config", fine), Vec::<String>::new());
+        assert_eq!(
+            links_problems("config", "[target").len(),
+            1,
+            "invalid TOML is reported"
         );
     }
 

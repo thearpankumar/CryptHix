@@ -11,10 +11,11 @@ use std::process::{Command, ExitCode};
 use crate::process::{cargo, run_status};
 
 /// Paths whose changes can break the `tests/` workspace.
-const SIDE_INPUTS: [&str; 3] = [
+const SIDE_INPUTS: [&str; 4] = [
     "tests/",
     "crates/foundation/types/",
     "crates/foundation/crypto/",
+    "crates/engine/core/",
 ];
 
 /// Largest file that may be committed, in bytes.
@@ -154,8 +155,8 @@ fn checks() -> Result<(), String> {
         "clippy found problems (see above)",
     )?;
 
-    // `tests/` is its own workspace, built on crypthix-types and crypthix-crypto, so a change to
-    // any of them can break it. The cargo-fuzz crate is left out: libFuzzer needs a C++ compiler
+    // `tests/` is its own workspace, built on crypthix-types, crypthix-crypto and crypthix-core,
+    // so a change to any of them can break it. The cargo-fuzz crate is left out: libFuzzer needs a C++ compiler
     // even to check, and its binaries only call the harness.
     let side_changed = staged
         .iter()
