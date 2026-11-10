@@ -3,7 +3,8 @@
 //!
 //! The encoder groups (`Compress`, `DataBlobSeal`) expect zstd's exact output, which is only
 //! known for the version in the set's header, so they fail outright under any other version.
-//! Every other group, decompression included, must pass with any zstd.
+//! The decoding groups give the results FS-53 defines through libzstd 1.5.7; a reader on another
+//! decoder must give the same results, and `Decompressor` itself requires 1.5.7.
 
 #[allow(dead_code, reason = "each runner uses part of the shared helpers")]
 mod common;
@@ -12,9 +13,9 @@ use crypthix_core::blob::{
     self, BlobContext, BlobIdKind, ChunkEntry, ChunkKeys, MetaContext, MetaKey, MetaKind,
     ObjectClass, ObjectOpener, ObjectSealer,
 };
-use crypthix_core::chunk::{self, Chunks, GearTable, ObjectShape, StreamChunker};
+use crypthix_core::chunk::{ChunkRef, Chunks, GearTable, StreamChunker};
 use crypthix_core::compress::{Compressor, Decompressor};
-use crypthix_core::error::ReadError;
+use crypthix_core::error::{ReadError, WriteError};
 use crypthix_core::inner::{self, Comp};
 use crypthix_core::limits::{MAX_CHUNK, MIN_CHUNK};
 use crypthix_core::pad;
@@ -32,13 +33,13 @@ const FILE: &str = "crypthix/v0/tv-07-chunk-blob.json";
 
 /// The groups of TV-07 and their sizes.
 const GROUPS: [(&str, usize); 8] = [
-    ("Chunking", 21),
+    ("Chunking", 22),
     ("Padme", 12),
     ("InnerDecode", 20),
     ("Compress", 9),
-    ("Decompress", 32),
+    ("Decompress", 37),
     ("DataBlobSeal", 4),
-    ("DataBlobOpen", 29),
+    ("DataBlobOpen", 35),
     ("MetaBlob", 13),
 ];
 
@@ -138,8 +139,8 @@ fn check_chunking(test: &Value) {
     let shape = chunks.object_shape();
     assert_eq!(shape.class(), class, "{}: the shape's class", comment(test));
     assert_eq!(
-        shape.is_single(),
-        expected.len() <= 1,
+        (shape.is_empty(), shape.is_single()),
+        (expected.is_empty(), expected.len() == 1),
         "{}: the shape",
         comment(test)
     );
@@ -162,14 +163,19 @@ fn check_chunking(test: &Value) {
         lengths.push(range.len());
     }
     assert_eq!(lengths, expected, "{}: in memory", comment(test));
-    if class == ObjectClass::Ordinary {
-        assert_eq!(
-            chunk::cut(&gear, &data),
-            expected.first().copied().unwrap_or(0),
-            "{}: the first cut",
-            comment(test)
-        );
+    let mut refs = Vec::new();
+    for chunk in Chunks::new(&gear, class, &data).chunk_refs() {
+        assert!(refs.len() < most, "{}: too many chunk refs", comment(test));
+        assert_eq!(chunk.index(), refs.len() as u64, "{}", comment(test));
+        assert_eq!(chunk.object_shape(), shape, "{}", comment(test));
+        refs.push((chunk.bytes().len(), chunk.is_last()));
     }
+    let with_last: Vec<(usize, bool)> = expected
+        .iter()
+        .enumerate()
+        .map(|(index, len)| (*len, index + 1 == expected.len()))
+        .collect();
+    assert_eq!(refs, with_last, "{}: chunk refs", comment(test));
 
     let mut chunker = StreamChunker::new(&gear, class, data.as_slice()).expect("a window");
     let mut streamed = Vec::new();
@@ -304,19 +310,6 @@ fn check_decompress(test: &Value, decompressor: &mut Decompressor) {
     }
 }
 
-/// The shape the chunker gives an object of `class` and `count` chunks, from a chunker run over
-/// one byte or over zeros one byte longer than a maximum chunk; only the chunker makes shapes.
-fn shape(class: ObjectClass, count: u64) -> ObjectShape {
-    let seed = KdfKey::from_bytes([1; 32]).expect("non-zero key");
-    let vault_id = VaultId::try_from_bytes([1; 16]).expect("non-zero ID");
-    let gear = GearTable::derive(&seed, &vault_id).expect("derives");
-    let len = if count == 1 { 1 } else { MAX_CHUNK + 1 };
-    let shape = Chunks::new(&gear, class, &vec![0; len]).object_shape();
-    assert_eq!(shape.is_single(), count == 1, "{count} chunks");
-    assert_eq!(shape.class(), class);
-    shape
-}
-
 /// The keys of a data-blob test, bound to its context.
 fn chunk_keys(test: &Value) -> ChunkKeys {
     let context = BlobContext::new(
@@ -382,22 +375,45 @@ fn check_data_seal(test: &Value, compressor: &mut Compressor, decompressor: &mut
     let opened = reader.open(decompressor, &entry, &sealed).expect("opens");
     assert_eq!(opened.as_slice(), chunk, "{}", comment(test));
 
-    // The real writer, with its own randomness, gives a blob that opens the same way.
-    let writer = ObjectSealer::new(&keys, shape(class, count));
+    // The real writer, with its own randomness, gives a blob that opens the same way: the
+    // chunk as chunk 0 of an object of `count` chunks, the last only if there is one.
+    let first = ChunkRef::from_parts(&chunk, 0, count == 1, class);
+    let mut writer = ObjectSealer::new(&keys, first.object_shape());
     assert_eq!(
         writer.blob_id_kind(),
         reader.blob_id_kind(),
         "{}",
         comment(test)
     );
-    let written = writer.seal(compressor, &chunk).expect("seals");
-    if BlobIdKind::for_object(class, count) == BlobIdKind::Keyed {
+    let identified = writer.identify(first).expect("identifies");
+    let keyed = BlobIdKind::for_object(class, count) == BlobIdKind::Keyed;
+    assert_eq!(
+        identified.keyed_id(),
+        keyed.then_some(&id),
+        "{}: the keyed ID before sealing",
+        comment(test)
+    );
+    let written = writer
+        .seal_identified(compressor, identified)
+        .expect("seals");
+    if keyed {
         assert_eq!(written.blob_id(), &id, "{}", comment(test));
     }
     let opened = reader
         .open(decompressor, written.entry(), written.sealed())
         .expect("opens");
     assert_eq!(opened.as_slice(), chunk, "{}", comment(test));
+    let finished = if count == 1 {
+        Ok(1)
+    } else {
+        Err(WriteError::Sequence)
+    };
+    assert_eq!(
+        writer.finish(),
+        finished,
+        "{}: only one chunk sealed",
+        comment(test)
+    );
 }
 
 /// Checks one data-blob open and returns its `expect`.
@@ -416,12 +432,12 @@ fn check_data_open<'a>(test: &'a Value, decompressor: &mut Decompressor) -> &'a 
     match result {
         Ok(opened) => {
             assert_eq!(expect(test), "Ok", "{}", comment(test));
-            assert_eq!(
-                opened.as_slice(),
-                common::output(test, "plaintext"),
-                "{}",
-                comment(test)
-            );
+            let expected = if test.get("plaintextZeros").is_some() {
+                vec![0; usize_of(common::output_int(test, "plaintextZeros"))]
+            } else {
+                common::output(test, "plaintext")
+            };
+            assert_eq!(opened.as_slice(), expected, "{}", comment(test));
         }
         Err(error) => assert_eq!(error_name(error), expect(test), "{}", comment(test)),
     }
@@ -482,7 +498,7 @@ fn check_meta(test: &Value) {
     assert_eq!(opened.as_slice(), cbor, "{}", comment(test));
 }
 
-/// Every group but the encoder's, which any zstd version must pass.
+/// Every group but the encoder's: the results FS-53 defines through libzstd 1.5.7.
 #[test]
 #[cfg_attr(miri, ignore = "zstd is C, which Miri cannot run")]
 fn tv07_chunk_blob() {

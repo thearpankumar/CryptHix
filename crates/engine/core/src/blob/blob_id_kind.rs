@@ -17,9 +17,10 @@ pub enum BlobIdKind {
 impl BlobIdKind {
     /// Keyed exactly when the object is of the ordinary class and has two or more chunks;
     /// random otherwise. A reader takes the class and the chunk count from the manifest
-    /// ([`ObjectOpener`](crate::blob::ObjectOpener)); a writer takes the count from the chunker
-    /// ([`ObjectSealer`](crate::blob::ObjectSealer) with an
-    /// [`ObjectShape`](crate::chunk::ObjectShape)), so the two always agree.
+    /// ([`ObjectOpener`](crate::blob::ObjectOpener)); a writer takes them from the chunker's
+    /// [`ObjectShape`](crate::chunk::ObjectShape) and records the count
+    /// [`ObjectSealer::finish`](crate::blob::ObjectSealer::finish) gives, which fails if the
+    /// chunks sealed contradict the shape, so the two agree.
     #[must_use]
     pub const fn for_object(class: ObjectClass, chunk_count: u64) -> Self {
         match class {

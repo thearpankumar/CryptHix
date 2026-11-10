@@ -1,12 +1,12 @@
 //! Cutting a reader.
 
 use std::fmt;
-use std::io::{ErrorKind, Read};
+use std::io::{self, ErrorKind, Read};
 
 use crypthix_crypto::secure_mem::SecretBuf;
 
 use crate::blob::ObjectClass;
-use crate::chunk::cut::cut_for;
+use crate::chunk::cut;
 use crate::chunk::{ChunkParams, ChunkRef, GearTable, StreamError};
 
 /// Cuts the bytes of a reader, for an object of a class, into the same chunks
@@ -66,12 +66,12 @@ impl<'g, R: Read> StreamChunker<'g, R> {
 
     /// A chunker at the scaled-down sizes of
     /// [`Chunks::scaled_for_fuzzing`](crate::chunk::Chunks::scaled_for_fuzzing), with a
-    /// 2 KiB window. Not part of the API and not a format 0 cut; for the `chunker` fuzz target.
+    /// 2 KiB window, for the `chunker` fuzz target only: not a format 0 cut.
     ///
     /// # Errors
     ///
     /// [`StreamError::Memory`] if protected memory cannot be allocated for the window.
-    #[doc(hidden)]
+    #[cfg(feature = "vectors")]
     pub fn scaled_for_fuzzing(
         gear: &'g GearTable,
         class: ObjectClass,
@@ -87,6 +87,8 @@ impl<'g, R: Read> StreamChunker<'g, R> {
         reader: R,
         params: ChunkParams,
     ) -> Result<Self, StreamError> {
+        #[cfg(test)]
+        crate::fault::allocation()?;
         let window = SecretBuf::try_zeroed(params.max * 2)?;
         Ok(Self {
             gear,
@@ -129,7 +131,7 @@ impl<'g, R: Read> StreamChunker<'g, R> {
             self.failed = true;
             return Err(StreamError::Failed);
         };
-        let len = cut_for(self.class, self.gear, rest, &self.params);
+        let len = cut::cut_for(self.class, self.gear, rest, &self.params);
         let Some(bytes) = rest.get(..len) else {
             self.failed = true;
             return Err(StreamError::Failed);
@@ -163,7 +165,7 @@ impl<'g, R: Read> StreamChunker<'g, R> {
                 }
                 // A reader that claims more than it was given breaks the `Read` contract.
                 Ok(read) if read > free.len() => {
-                    return Err(std::io::Error::from(ErrorKind::InvalidData).into());
+                    return Err(io::Error::from(ErrorKind::InvalidData).into());
                 }
                 Ok(read) => self.end += read,
                 Err(error) if error.kind() == ErrorKind::Interrupted => {}
@@ -188,15 +190,16 @@ impl<R> fmt::Debug for StreamChunker<'_, R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::ops::Range;
 
+    use crypthix_crypto::secure_mem::MemError;
     use proptest::collection::vec;
-    use proptest::prelude::{any, prop_assert_eq, proptest};
+    use proptest::prelude::{prop_assert_eq, proptest};
 
     use super::*;
+    use crate::fault::{self, Fault};
     use crate::test_data::gear_table as table;
-    use crate::test_data::{chunk_ranges, most_chunks, pseudo_random};
+    use crate::test_data::{any_byte, bytes, chunk_ranges, most_chunks, pseudo_random};
 
     /// A reader that returns at most the next step's bytes per call, and `Interrupted` where a
     /// step is 0.
@@ -374,6 +377,81 @@ mod tests {
     }
 
     #[test]
+    fn no_protected_memory_for_the_window_fails_with_memory() {
+        let gear = table(1);
+        let _guard = fault::inject(Fault::Allocation(0));
+        // Fails before the 2 MiB window is allocated, so this is quick under Miri too.
+        assert!(matches!(
+            StreamChunker::new(&gear, ObjectClass::Ordinary, &b"data"[..]),
+            Err(StreamError::Memory(MemError::MapFailed))
+        ));
+    }
+
+    #[test]
+    fn a_hard_error_on_a_later_refill_is_returned_then_the_chunker_stays_failed() {
+        /// Fills the first window from `data`, then fails; a third read means the chunker
+        /// read on after the error.
+        struct FailsLater<'a> {
+            data: &'a [u8],
+            reads: usize,
+        }
+        impl Read for FailsLater<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.reads += 1;
+                match self.reads {
+                    1 => {
+                        let len = buf.len().min(self.data.len());
+                        buf[..len].copy_from_slice(&self.data[..len]);
+                        self.data = &self.data[len..];
+                        Ok(len)
+                    }
+                    2 => Err(io::Error::other("disk")),
+                    _ => panic!("read {} after a hard error", self.reads),
+                }
+            }
+        }
+        let gear = table(1);
+        let params = ChunkParams::SCALED;
+        // More than the window, so the first read fills it and a later chunk needs a refill.
+        let data = pseudo_random(5, 3 * params.max);
+        for class in [ObjectClass::Ordinary, ObjectClass::Secret] {
+            let reader = FailsLater {
+                data: &data,
+                reads: 0,
+            };
+            let mut chunker =
+                StreamChunker::with_params(&gear, class, reader, params).expect("window");
+            let mut offset = 0;
+            let error = loop {
+                match chunker.next_chunk() {
+                    Ok(Some(chunk)) => {
+                        let bytes = chunk.bytes();
+                        assert_eq!(bytes, &data[offset..offset + bytes.len()], "{class:?}");
+                        assert!(!chunk.is_last(), "{class:?}: the input did not end");
+                        offset += bytes.len();
+                        assert!(offset <= 2 * params.max, "{class:?}: cut past the window");
+                    }
+                    Ok(None) => panic!("{class:?}: a failed read taken for the end"),
+                    Err(error) => break error,
+                }
+            };
+            assert!(offset > 0, "{class:?}: chunks before the error");
+            assert!(
+                matches!(&error, StreamError::Io(io) if io.to_string() == "disk"),
+                "{class:?}: {error:?}"
+            );
+            assert_eq!(chunker.reader.reads, 2, "{class:?}");
+            for _ in 0..2 {
+                assert!(matches!(chunker.next_chunk(), Err(StreamError::Failed)));
+            }
+            assert_eq!(
+                chunker.reader.reads, 2,
+                "{class:?}: no read after the error"
+            );
+        }
+    }
+
+    #[test]
     fn a_failed_read_is_never_taken_for_the_end() {
         /// Gives `data` once, then fails once, then reports the end.
         struct FailsOnce<'a> {
@@ -450,10 +528,9 @@ mod tests {
 
     proptest! {
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
         fn streaming_equals_in_memory(
             seed in 1u8..,
-            data in vec(any::<u8>(), 0..6_000),
+            data in bytes(0..6_000, any_byte),
             steps in vec(0usize..700, 1..8),
             secret: bool,
         ) {
@@ -466,8 +543,7 @@ mod tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
-        fn chunks_reassemble_the_stream(seed in 1u8.., data in vec(0u8..3, 0..6_000)) {
+        fn chunks_reassemble_the_stream(seed in 1u8.., data in bytes(0..6_000, |byte| byte % 3)) {
             let gear = table(seed);
             let chunks = streamed(
                 &gear,

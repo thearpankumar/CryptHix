@@ -47,9 +47,18 @@ impl MetaKey {
         Ok(Self { key, context })
     }
 
-    /// The seal key, `K_kind_e`.
+    /// The seal key, `K_kind_e`. Public only with the `vectors` feature, for the test-vector
+    /// runners: sealing with it directly would bypass the context's AAD.
+    #[cfg(feature = "vectors")]
     #[must_use]
     pub const fn seal_key(&self) -> &SealKey {
+        &self.key
+    }
+
+    /// The seal key, `K_kind_e`.
+    #[cfg(not(feature = "vectors"))]
+    #[must_use]
+    pub(crate) const fn seal_key(&self) -> &SealKey {
         &self.key
     }
 

@@ -1,12 +1,12 @@
 //! Cutting data already in memory.
 
 use std::fmt;
-use std::iter::FusedIterator;
+use std::iter::{self, FusedIterator};
 use std::ops::Range;
 
 use crate::blob::ObjectClass;
-use crate::chunk::cut::cut_for;
-use crate::chunk::{ChunkParams, GearTable, ObjectShape};
+use crate::chunk::cut;
+use crate::chunk::{ChunkCount, ChunkParams, ChunkRef, GearTable, ObjectShape};
 
 /// The chunks of `data` in an object of a class, as ranges into it, in order (FS-52). Empty
 /// data has none. An ordinary object is cut with keyed FastCDC, so data no longer than 64 KiB
@@ -38,6 +38,8 @@ pub struct Chunks<'a> {
     class: ObjectClass,
     data: &'a [u8],
     offset: usize,
+    /// Index of the next chunk.
+    index: u64,
     params: ChunkParams,
 }
 
@@ -49,10 +51,10 @@ impl<'a> Chunks<'a> {
     }
 
     /// The chunks of `data` cut at the scaled-down sizes 64, 256 and 1,024 bytes, with the
-    /// level 2 masks for a 256-byte average. Not part of the API and not a format 0 cut: it
+    /// level 2 masks for a 256-byte average, for the fuzz targets only: not a format 0 cut. It
     /// lets the `chunker` fuzz target reach every cut-point edge with inputs of a few KiB,
     /// where the format 0 hash is only tested 64 KiB into a chunk.
-    #[doc(hidden)]
+    #[cfg(feature = "vectors")]
     pub fn scaled_for_fuzzing(gear: &'a GearTable, class: ObjectClass, data: &'a [u8]) -> Self {
         Self::with_params(gear, class, data, ChunkParams::SCALED)
     }
@@ -69,18 +71,39 @@ impl<'a> Chunks<'a> {
             class,
             data,
             offset: 0,
+            index: 0,
             params,
         }
     }
 
-    /// The class the chunks are cut for and whether `data` is one chunk or more, which a
+    /// The class the chunks are cut for and whether `data` is no chunk, one, or more, which a
     /// writer passes to [`ObjectSealer::new`](crate::blob::ObjectSealer::new) (FS-55). It
     /// depends on the whole data, not on how far the iterator has gone, and costs one cut.
-    /// Empty data, which has no chunk to seal, counts as one.
     #[must_use]
     pub fn object_shape(&self) -> ObjectShape {
-        let first = cut_for(self.class, self.gear, self.data, &self.params);
-        ObjectShape::new(self.class, first >= self.data.len())
+        let first = cut::cut_for(self.class, self.gear, self.data, &self.params);
+        let count = if self.data.is_empty() {
+            ChunkCount::Zero
+        } else if first >= self.data.len() {
+            ChunkCount::One
+        } else {
+            ChunkCount::Many
+        };
+        ObjectShape::new(self.class, count)
+    }
+
+    /// The chunks not yet cut, as the [`ChunkRef`]s an
+    /// [`ObjectSealer`](crate::blob::ObjectSealer) seals: each with its bytes, its index in the
+    /// object and whether it is the last.
+    pub fn chunk_refs(self) -> impl Iterator<Item = ChunkRef<'a>> {
+        let mut chunks = self;
+        iter::from_fn(move || {
+            let index = chunks.index;
+            let range = chunks.next()?;
+            let is_last = range.end == chunks.data.len();
+            let bytes = chunks.data.get(range)?;
+            Some(ChunkRef::new(bytes, index, is_last, chunks.class))
+        })
     }
 }
 
@@ -89,12 +112,13 @@ impl Iterator for Chunks<'_> {
 
     fn next(&mut self) -> Option<Range<usize>> {
         let rest = self.data.get(self.offset..)?;
-        let len = cut_for(self.class, self.gear, rest, &self.params);
+        let len = cut::cut_for(self.class, self.gear, rest, &self.params);
         if len == 0 {
             return None;
         }
         let start = self.offset;
         self.offset += len;
+        self.index = self.index.saturating_add(1);
         Some(start..self.offset)
     }
 }
@@ -114,12 +138,11 @@ impl fmt::Debug for Chunks<'_> {
 
 #[cfg(test)]
 mod tests {
-    use proptest::collection::vec;
-    use proptest::prelude::{any, prop_assert, prop_assert_eq, proptest};
+    use proptest::prelude::{prop_assert, prop_assert_eq, proptest};
 
     use super::*;
     use crate::test_data::gear_table as table;
-    use crate::test_data::{chunk_ranges, pseudo_random};
+    use crate::test_data::{any_byte, bytes, chunk_ranges, pseudo_random};
 
     const CLASSES: [ObjectClass; 2] = [ObjectClass::Ordinary, ObjectClass::Secret];
 
@@ -134,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shape_is_single_exactly_when_there_is_at_most_one_chunk() {
+    fn the_shape_counts_none_one_or_more_chunks() {
         let gear = table(1);
         let params = ChunkParams::SCALED;
         for class in CLASSES {
@@ -142,9 +165,50 @@ mod tests {
                 let data = pseudo_random(3, len);
                 let count = chunk_ranges(&gear, class, &data, params).len();
                 let shape = Chunks::with_params(&gear, class, &data, params).object_shape();
-                assert_eq!(shape.is_single(), count <= 1, "{class:?} {len}");
+                assert_eq!(
+                    (shape.is_empty(), shape.is_single()),
+                    (count == 0, count == 1),
+                    "{class:?} {len}"
+                );
                 assert_eq!(shape.class(), class);
             }
+        }
+    }
+
+    #[test]
+    fn chunk_refs_are_the_ranges_with_their_index_and_last_flag() {
+        let gear = table(1);
+        let params = ChunkParams::SCALED;
+        for class in CLASSES {
+            let data = pseudo_random(4, 5_000);
+            let ranges = chunk_ranges(&gear, class, &data, params);
+            assert!(ranges.len() > 2, "{class:?}: enough chunks to test");
+            let mut chunks = Chunks::with_params(&gear, class, &data, params);
+            assert_eq!(chunks.next(), Some(ranges[0].clone()));
+            let shape = chunks.object_shape();
+            let refs: Vec<ChunkRef<'_>> = chunks.chunk_refs().collect();
+            assert_eq!(refs.len(), ranges.len() - 1, "{class:?}: the rest");
+            for (chunk, range) in refs.iter().zip(&ranges[1..]) {
+                let index = chunk.index();
+                assert_eq!(chunk.bytes(), &data[range.clone()], "{class:?} {index}");
+                assert_eq!(
+                    index,
+                    ranges.iter().position(|r| r == range).expect("a range") as u64
+                );
+                assert_eq!(
+                    chunk.is_last(),
+                    range.end == data.len(),
+                    "{class:?} {index}"
+                );
+                assert_eq!(chunk.object_shape(), shape, "{class:?} {index}");
+            }
+            let one: Vec<ChunkRef<'_>> = Chunks::with_params(&gear, class, &data[..10], params)
+                .chunk_refs()
+                .collect();
+            assert_eq!(one.len(), 1);
+            assert_eq!((one[0].index(), one[0].is_last()), (0, true));
+            let none = Chunks::with_params(&gear, class, &[], params).chunk_refs();
+            assert_eq!(none.count(), 0);
         }
     }
 
@@ -165,8 +229,7 @@ mod tests {
 
     proptest! {
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
-        fn chunks_tile_the_data_within_the_size_bounds(seed in 1u8.., data in vec(any::<u8>(), 0..6_000)) {
+        fn chunks_tile_the_data_within_the_size_bounds(seed in 1u8.., data in bytes(0..6_000, any_byte)) {
             let gear = table(seed);
             let params = ChunkParams::SCALED;
             let ranges = chunk_ranges(&gear, ObjectClass::Ordinary, &data, params);
@@ -188,10 +251,9 @@ mod tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
         fn secret_chunks_are_fixed_steps_of_the_maximum(
             seed in 1u8..,
-            data in vec(any::<u8>(), 0..6_000),
+            data in bytes(0..6_000, any_byte),
         ) {
             let gear = table(seed);
             let params = ChunkParams::SCALED;

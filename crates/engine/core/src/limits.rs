@@ -30,7 +30,8 @@ pub const WINDOW_LOG: u32 = 20;
 /// The libzstd version FS-53 pins, as `ZSTD_versionNumber` gives it: 1.5.7.
 ///
 /// zstd output is not guaranteed to be the same across versions, so the encoder is only known
-/// to match the test vectors under this one; any version decodes them.
+/// to match the test vectors under this one. It also defines which frames decode (FS-53), so
+/// [`Decompressor`](crate::compress::Decompressor) refuses any other version too.
 pub const ZSTD_VERSION: u32 = 10_507;
 
 /// Bytes of the gear table: 256 little-endian `u64` words (FS-52).

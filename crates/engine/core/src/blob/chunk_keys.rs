@@ -60,15 +60,35 @@ impl ChunkKeys {
         &self.context
     }
 
-    /// `K_chunk`, which seals the object's data blobs.
+    /// `K_chunk`, which seals the object's data blobs. Public only with the `vectors` feature,
+    /// for the test-vector runners and fuzz targets: sealing with it directly would bypass the
+    /// object's AAD and its blob-ID kind.
+    #[cfg(feature = "vectors")]
     #[must_use]
     pub const fn chunk_key(&self) -> &SealKey {
         &self.chunk
     }
 
-    /// `K_blobid`, which keys the blob IDs of an ordinary object.
+    /// `K_chunk`, which seals the object's data blobs.
+    #[cfg(not(feature = "vectors"))]
+    #[must_use]
+    pub(crate) const fn chunk_key(&self) -> &SealKey {
+        &self.chunk
+    }
+
+    /// `K_blobid`, which keys the blob IDs of an ordinary object. Public only with the
+    /// `vectors` feature, for the test-vector runners and fuzz targets: a MAC under it for a
+    /// single-chunk object is the oracle FS-55 rules out (T-85).
+    #[cfg(feature = "vectors")]
     #[must_use]
     pub const fn blob_id_key(&self) -> &MacKey {
+        &self.blob_id
+    }
+
+    /// `K_blobid`, which keys the blob IDs of an ordinary object.
+    #[cfg(not(feature = "vectors"))]
+    #[must_use]
+    pub(crate) const fn blob_id_key(&self) -> &MacKey {
         &self.blob_id
     }
 }

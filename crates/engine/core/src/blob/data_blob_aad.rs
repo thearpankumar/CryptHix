@@ -7,10 +7,16 @@ use crypthix_types::id::BlobId;
 use crate::blob::BlobContext;
 
 /// The blob kind byte of a data blob (format spec 10.4).
-pub const DATA_BLOB_KIND: u8 = 0x01;
+const DATA_BLOB_KIND: u8 = 0x01;
 
 /// `u8 len ‖ "crypthix/v0/aad/blob-data" ‖ fmt ‖ suite ‖ vault_id ‖ u8 0x01 ‖ object_id ‖
-/// dek_id ‖ blob_id` (FS-55).
+/// dek_id ‖ blob_id` (FS-55). Public only with the `vectors` feature, for the test-vector
+/// runners and fuzz targets; [`ObjectSealer`](crate::blob::ObjectSealer) and
+/// [`ObjectOpener`](crate::blob::ObjectOpener) build it from the keys' own context.
+#[cfg_attr(
+    not(feature = "vectors"),
+    expect(unreachable_pub, reason = "public only with `vectors`, for TV-07")
+)]
 pub fn data_blob_aad(context: &BlobContext, blob_id: &BlobId) -> Aad {
     Aad::new(AadLabel::BlobData)
         .field(context.vault_id().as_bytes())

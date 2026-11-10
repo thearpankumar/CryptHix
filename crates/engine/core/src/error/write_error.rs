@@ -39,6 +39,12 @@ pub enum WriteError {
     Format(FormatError),
     /// A key could not be derived for a reason none of `Random`, `Memory` and `Format` names.
     Key(KeyError),
+    /// An [`ObjectSealer`](crate::blob::ObjectSealer) was given a chunk that is not the next
+    /// chunk of an object of its shape, a chunk identified by another sealer, or a chunk with a
+    /// random blob ID to reuse; or it was finished before the object's last chunk. Nothing was
+    /// sealed and the sealer did not move on. Any blob it sealed before a failed `finish` must
+    /// not be stored.
+    Sequence,
 }
 
 impl fmt::Display for WriteError {
@@ -50,6 +56,7 @@ impl fmt::Display for WriteError {
             WriteError::Zstd(_) => "zstd failed",
             WriteError::Format(_) => "the input breaks a format rule",
             WriteError::Key(_) => "a key could not be derived",
+            WriteError::Sequence => "the chunks sealed are not those of the object, in order",
         })
     }
 }
@@ -63,6 +70,7 @@ impl Error for WriteError {
             WriteError::Zstd(error) => Some(error),
             WriteError::Format(error) => Some(error),
             WriteError::Key(error) => Some(error),
+            WriteError::Sequence => None,
         }
     }
 }
@@ -129,9 +137,11 @@ mod tests {
             assert_eq!(source.to_string(), cause.to_string());
             messages.push(error.to_string());
         }
+        assert_eq!(WriteError::Sequence.source().map(ToString::to_string), None);
+        messages.push(WriteError::Sequence.to_string());
         messages.sort();
         messages.dedup();
-        assert_eq!(messages.len(), 6, "two kinds share a message");
+        assert_eq!(messages.len(), 7, "two kinds share a message");
     }
 
     #[test]

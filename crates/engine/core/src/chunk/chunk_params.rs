@@ -26,7 +26,9 @@ impl ChunkParams {
 
     /// Scaled-down sizes for tests and the `chunker` fuzz target: 64, 256 and 1,024 bytes with
     /// the level 2 masks fastcdc selects for a 256-byte average, `MASKS[10]` and `MASKS[6]`. Not
-    /// a format 0 set: no object is ever cut with it.
+    /// a format 0 set: no object is ever cut with it, and it exists only in tests and with the
+    /// `vectors` feature.
+    #[cfg(any(test, feature = "vectors"))]
     pub(crate) const SCALED: Self = Self {
         min: 64,
         avg: 256,

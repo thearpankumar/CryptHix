@@ -14,10 +14,11 @@ use crate::compress::CompressError;
 /// plaintext, zstd itself failed, or a key could not be derived.
 ///
 /// A blob that is not what its reference says is always [`ReadError::Format`], with the first
-/// failing check of FS-93: `Decompress`, `Decrypt`, `Padding`, `Limit` or `Binding`. A frame
-/// that does not decode is such a check, `FormatError::Decompress`; [`ReadError::Zstd`] is zstd
-/// failing for a reason of its own. The kinds other than `Format` depend only on the reader's
-/// own resources, so they never look like tampering.
+/// failing check of FS-93: `Decompress`, `Decrypt`, `Truncated` (too short to be a seal),
+/// `ZeroValue` (an all-zero nonce), `Padding`, `Limit` or `Binding`. A frame that does not
+/// decode is such a check, `FormatError::Decompress`; [`ReadError::Zstd`] is zstd failing for a
+/// reason of its own. The kinds other than `Format` depend only on the reader's own resources,
+/// so they never look like tampering.
 ///
 /// The failure of a [`KeyError`], as from [`ChunkKeys::derive`](crate::blob::ChunkKeys::derive),
 /// converts with `?`: its `Format` and `Memory` kinds to the same kinds here, anything else to

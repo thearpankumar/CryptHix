@@ -14,8 +14,10 @@
 //!   and meta blobs sealed under their epoch's key (FS-57).
 //!
 //! Plaintext, compressed chunks and inner plaintexts live only in fixed-size
-//! [`SecretBuf`](crypthix_crypto::secure_mem::SecretBuf)s of protected memory; a `Vec` holds
-//! only ciphertext. Two residuals remain: zstd's working memory is on the C heap, not wiped,
+//! [`SecretBuf`](crypthix_crypto::secure_mem::SecretBuf)s, wiped on free; a `Vec` holds only
+//! ciphertext. On Linux a `SecretBuf` is also locked where `RLIMIT_MEMLOCK` allows and kept out
+//! of core dumps; elsewhere, and under Miri, it is plain heap memory
+//! ([`secure_mem`](crypthix_crypto::secure_mem)). Two residuals remain: zstd's working memory is on the C heap, not wiped,
 //! locked or kept from forked children (see [`compress`], R-26), and the gear table, kept in a
 //! `SecretBuf` rather than secret pages, is assumed to leak, since keyed chunkers have been
 //! attacked from observed chunk sizes; Padmé only coarsens those sizes and packs hide them
@@ -47,15 +49,18 @@
 //!
 //! let file = b"some file contents ".repeat(20_000);
 //! let chunks = Chunks::new(&gear, ObjectClass::Ordinary, &file);
-//! // The writer takes the class and chunk count from the chunker, the reader from the manifest.
-//! let sealer = ObjectSealer::new(&keys, chunks.object_shape());
-//! let ranges: Vec<_> = chunks.collect();
-//! let opener = ObjectOpener::new(&keys, ObjectClass::Ordinary, ranges.len() as u64);
+//! // The writer takes the object's shape from the chunker and seals the chunks it cut, in
+//! // order; `finish` gives the chunk count for the manifest, from which the reader takes it.
+//! let mut sealer = ObjectSealer::new(&keys, chunks.object_shape());
 //! let mut compressor = Compressor::new()?;
+//! let mut written = Vec::new();
+//! for chunk in chunks.chunk_refs() {
+//!     written.push((chunk.bytes(), sealer.seal(&mut compressor, chunk)?));
+//! }
+//! let chunk_count = sealer.finish()?;
+//! let opener = ObjectOpener::new(&keys, ObjectClass::Ordinary, chunk_count);
 //! let mut decompressor = Decompressor::new();
-//! for range in ranges {
-//!     let chunk = &file[range];
-//!     let sealed = sealer.seal(&mut compressor, chunk)?;
+//! for (chunk, sealed) in written {
 //!     let opened = opener.open(&mut decompressor, sealed.entry(), sealed.sealed())?;
 //!     assert_eq!(opened.as_slice(), chunk);
 //! }
@@ -66,6 +71,8 @@ pub mod blob;
 pub mod chunk;
 pub mod compress;
 pub mod error;
+#[cfg(test)]
+mod fault;
 pub mod inner;
 pub mod limits;
 pub mod pad;

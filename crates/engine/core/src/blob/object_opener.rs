@@ -6,10 +6,10 @@ use crypthix_crypto::mac;
 use crypthix_crypto::secure_mem::SecretBuf;
 use crypthix_types::format_error::FormatError;
 
-use crate::blob::{BlobIdKind, ChunkEntry, ChunkKeys, ObjectClass, OpenedChunk, data_blob_aad};
-use crate::compress::Decompressor;
+use crate::blob::{self, BlobIdKind, ChunkEntry, ChunkKeys, ObjectClass, OpenedChunk};
+use crate::compress::{self, Decompressor};
 use crate::error::ReadError;
-use crate::inner::{Comp, decode_inner};
+use crate::inner::{self, Comp};
 use crate::limits::MAX_PLAIN_LEN;
 
 /// Opens the data blobs of one object, built once from the object's keys and the `class` and
@@ -59,8 +59,9 @@ impl<'k> ObjectOpener<'k> {
     ///    `ZeroValue` for input too short to be a seal or with a zero nonce);
     /// 3. the inner plaintext (`Padding`, `Limit`, FS-54);
     /// 4. a secret-class object with `comp = 1` (`Padding`): its chunks are never compressed;
-    /// 5. the payload: a raw one must be exactly `plain_len` bytes, a zstd one must pass every
-    ///    frame check and decompress to exactly `plain_len` bytes (`Decompress`, FS-53);
+    /// 5. the payload: a raw one must be exactly `plain_len` bytes; a zstd one must keep the
+    ///    store-raw rule, `16 × payload_len ≤ 15 × plain_len`, then pass every frame check and
+    ///    decompress to exactly `plain_len` bytes (`Decompress`, FS-53);
     /// 6. a keyed blob ID must equal `MAC(K_blobid, plaintext)`, compared in constant time
     ///    (`Binding`, FS-56, FS-15). Random IDs have nothing to recompute.
     ///
@@ -83,18 +84,25 @@ impl<'k> ObjectOpener<'k> {
         if plain_len > MAX_PLAIN_LEN {
             return Err(FormatError::Decompress.into());
         }
-        let aad = data_blob_aad(self.keys.context(), entry.blob_id());
+        let aad = blob::data_blob_aad(self.keys.context(), entry.blob_id());
         let inner = cx_aead::open(self.keys.chunk_key(), &aad, sealed)?;
-        let view = decode_inner(&inner)?;
+        let view = inner::decode_inner(&inner)?;
         let opened = match (view.comp(), self.class) {
             (Comp::Zstd, ObjectClass::Secret) => return Err(FormatError::Padding.into()),
             (Comp::Raw, _) => {
                 if view.payload().len() as u64 != plain_len {
                     return Err(FormatError::Decompress.into());
                 }
+                #[cfg(test)]
+                crate::fault::allocation()?;
                 OpenedChunk::new(SecretBuf::try_copy_from(view.payload())?)
             }
             (Comp::Zstd, ObjectClass::Ordinary) => {
+                // The store-raw rule: no writer keeps a frame that saves less than 1/16, so
+                // such a frame is a second encoding of a chunk stored raw (FS-53).
+                if !compress::keep_compressed(view.payload().len() as u64, plain_len) {
+                    return Err(FormatError::Decompress.into());
+                }
                 OpenedChunk::new(decompressor.decode(view.payload(), plain_len)?)
             }
         };
@@ -115,6 +123,7 @@ impl<'k> ObjectOpener<'k> {
 #[cfg(test)]
 mod tests {
     use crypthix_crypto::cx_aead::NonceKind;
+    use crypthix_crypto::secure_mem::MemError;
     use crypthix_types::id::{BlobId, DekId, ObjectId, VaultId};
     use proptest::collection::vec;
     use proptest::prelude::{any, prop_assert_eq, proptest};
@@ -122,9 +131,9 @@ mod tests {
     use super::*;
     use crate::blob::chunk_keys::tests::{context, keys};
     use crate::blob::{BlobContext, ObjectSealer};
-    use crate::chunk::ObjectShape;
-    use crate::compress::Compressor;
-    use crate::inner::encode_inner;
+    use crate::chunk::ChunkRef;
+    use crate::compress::{CompressError, Compressor};
+    use crate::fault::{self, Fault};
     use crate::test_data::pseudo_random;
 
     fn text(len: usize) -> Vec<u8> {
@@ -161,7 +170,9 @@ mod tests {
     fn seal(class: ObjectClass, count: u64, chunk: &[u8]) -> (ChunkEntry, Vec<u8>) {
         let mut compressor = Compressor::new().expect("context");
         let keys = keys(2);
-        let sealed = ObjectSealer::new(&keys, ObjectShape::new(class, count == 1))
+        // Chunk 0 of the object, the last exactly when it has one chunk.
+        let chunk = ChunkRef::new(chunk, 0, count == 1, class);
+        let sealed = ObjectSealer::new(&keys, chunk.object_shape())
             .seal(&mut compressor, chunk)
             .expect("seals");
         (*sealed.entry(), sealed.into_sealed())
@@ -174,7 +185,7 @@ mod tests {
 
     /// A data blob sealed by hand under the keys of object 2 and the AAD of `context`.
     fn seal_inner_in(context: &BlobContext, blob_id: &BlobId, inner: &[u8]) -> Vec<u8> {
-        let aad = data_blob_aad(context, blob_id);
+        let aad = blob::data_blob_aad(context, blob_id);
         cx_aead::seal(keys(2).chunk_key(), &aad, inner, NonceKind::Hedged).expect("seals")
     }
 
@@ -184,7 +195,7 @@ mod tests {
         let inner = compressor
             .encode_chunk(chunk, ObjectClass::Ordinary)
             .expect("encodes");
-        let view = decode_inner(&inner).expect("well formed");
+        let view = inner::decode_inner(&inner).expect("well formed");
         assert_eq!(view.comp(), Comp::Zstd, "test data compresses");
         view.payload().to_vec()
     }
@@ -256,7 +267,7 @@ mod tests {
             BlobContext::new(*base.vault_id(), *base.object_id(), dek),
         ];
         // The inner plaintext of the chunk, sealed under the right key and a changed AAD.
-        let inner = encode_inner(Comp::Raw, &chunk).expect("encodes");
+        let inner = inner::encode_inner(Comp::Raw, &chunk).expect("encodes");
         let keyed_id = BlobId::try_from_bytes(*mac::mac(keys(2).blob_id_key(), &chunk).as_bytes())
             .expect("non-zero");
         let keyed_entry = ChunkEntry::new(keyed_id, chunk.len() as u64);
@@ -316,7 +327,7 @@ mod tests {
     #[test]
     fn a_keyed_id_that_does_not_match_the_plaintext_is_binding() {
         let chunk = b"chunk".to_vec();
-        let inner = encode_inner(Comp::Raw, &chunk).expect("encodes");
+        let inner = inner::encode_inner(Comp::Raw, &chunk).expect("encodes");
         let sealed = seal_inner(&id(7), &inner);
         let entry = ChunkEntry::new(id(7), 5);
         assert_eq!(
@@ -352,7 +363,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "calls into libzstd")]
     fn a_compressed_chunk_of_a_secret_object_is_padding() {
         let chunk = text(50_000);
-        let inner = encode_inner(Comp::Zstd, &frame(&chunk)).expect("encodes");
+        let inner = inner::encode_inner(Comp::Zstd, &frame(&chunk)).expect("encodes");
         let sealed = seal_inner(&id(7), &inner);
         let entry = ChunkEntry::new(id(7), 50_000);
         assert_eq!(
@@ -364,7 +375,10 @@ mod tests {
 
     #[test]
     fn raw_payloads_must_be_exactly_plain_len_bytes() {
-        let raw = seal_inner(&id(7), &encode_inner(Comp::Raw, b"chunk").expect("encodes"));
+        let raw = seal_inner(
+            &id(7),
+            &inner::encode_inner(Comp::Raw, b"chunk").expect("encodes"),
+        );
         for len in [0, 4, 6] {
             assert_eq!(
                 open(ObjectClass::Ordinary, 1, &ChunkEntry::new(id(7), len), &raw),
@@ -384,9 +398,12 @@ mod tests {
         let chunk = text(50_000);
         let zstd = seal_inner(
             &id(7),
-            &encode_inner(Comp::Zstd, &frame(&chunk)).expect("encodes"),
+            &inner::encode_inner(Comp::Zstd, &frame(&chunk)).expect("encodes"),
         );
-        let raw = seal_inner(&id(7), &encode_inner(Comp::Raw, &chunk).expect("encodes"));
+        let raw = seal_inner(
+            &id(7),
+            &inner::encode_inner(Comp::Raw, &chunk).expect("encodes"),
+        );
         for sealed in [&zstd, &raw] {
             for len in [49_999, 50_001] {
                 let entry = ChunkEntry::new(id(7), len);
@@ -399,11 +416,67 @@ mod tests {
         }
         let not_a_frame = seal_inner(
             &id(7),
-            &encode_inner(Comp::Zstd, b"garbage").expect("encodes"),
+            &inner::encode_inner(Comp::Zstd, b"garbage").expect("encodes"),
         );
         let entry = ChunkEntry::new(id(7), 7);
         assert_eq!(
             open(ObjectClass::Ordinary, 1, &entry, &not_a_frame),
+            format(FormatError::Decompress)
+        );
+    }
+
+    /// A single-segment frame of an RLE block of 16 `a` bytes and a raw block of `raw` bytes:
+    /// 13 bytes plus the raw ones, for `16 + raw` bytes of content.
+    fn rle_then_raw(raw: &[u8]) -> Vec<u8> {
+        let len = 16 + raw.len();
+        let mut frame = vec![
+            0x28,
+            0xB5,
+            0x2F,
+            0xFD,
+            0x20,
+            u8::try_from(len).expect("small"),
+        ];
+        frame.extend_from_slice(&(16u32 << 3 | 0b010).to_le_bytes()[..3]);
+        frame.push(b'a');
+        let raw_header = u32::try_from(raw.len()).expect("small") << 3 | 1;
+        frame.extend_from_slice(&raw_header.to_le_bytes()[..3]);
+        frame.extend_from_slice(raw);
+        frame
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn a_frame_that_saves_less_than_a_sixteenth_is_decompress() {
+        // 45 bytes for 48: 16 × 45 = 15 × 48, kept. 46 for 49 is not.
+        let kept = rle_then_raw(&[b'b'; 32]);
+        assert_eq!(kept.len(), 45);
+        let plain = [vec![b'a'; 16], vec![b'b'; 32]].concat();
+        let sealed = seal_inner(
+            &id(7),
+            &inner::encode_inner(Comp::Zstd, &kept).expect("encodes"),
+        );
+        let entry = ChunkEntry::new(id(7), 48);
+        assert_eq!(open(ObjectClass::Ordinary, 1, &entry, &sealed), Ok(plain));
+        let over = rle_then_raw(&[b'b'; 33]);
+        assert_eq!(
+            Decompressor::new()
+                .decode(&over, 49)
+                .map(|plain| plain.len()),
+            Ok(49)
+        );
+        let sealed = seal_inner(
+            &id(7),
+            &inner::encode_inner(Comp::Zstd, &over).expect("encodes"),
+        );
+        let entry = ChunkEntry::new(id(7), 49);
+        assert_eq!(
+            open(ObjectClass::Ordinary, 1, &entry, &sealed),
+            format(FormatError::Decompress)
+        );
+        // Before the blob ID: a keyed object whose ID does not match is still Decompress.
+        assert_eq!(
+            open(ObjectClass::Ordinary, 2, &entry, &sealed),
             format(FormatError::Decompress)
         );
     }
@@ -413,7 +486,7 @@ mod tests {
         let entry = ChunkEntry::new(id(7), 6);
         let sealed = seal_inner(
             &id(7),
-            &encode_inner(Comp::Raw, b"secret").expect("encodes"),
+            &inner::encode_inner(Comp::Raw, b"secret").expect("encodes"),
         );
         let mut decompressor = Decompressor::new();
         let keys = keys(2);
@@ -430,9 +503,53 @@ mod tests {
     }
 
     #[test]
+    fn no_protected_memory_for_a_raw_plaintext_fails_with_memory() {
+        let chunk = b"chunk".to_vec();
+        let inner = inner::encode_inner(Comp::Raw, &chunk).expect("encodes");
+        let sealed = seal_inner(&id(7), &inner);
+        let entry = ChunkEntry::new(id(7), 5);
+        let _guard = fault::inject(Fault::Allocation(0));
+        assert_eq!(
+            open(ObjectClass::Secret, 1, &entry, &sealed),
+            Err(ReadError::Memory(MemError::MapFailed))
+        );
+        assert!(fault::fired());
+        assert_eq!(open(ObjectClass::Secret, 1, &entry, &sealed), Ok(chunk));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn no_protected_memory_for_a_decompressed_plaintext_fails_with_memory() {
+        let chunk = text(100_000);
+        let (entry, sealed) = seal(ObjectClass::Ordinary, 2, &chunk);
+        let _guard = fault::inject(Fault::Allocation(0));
+        assert_eq!(
+            open(ObjectClass::Ordinary, 2, &entry, &sealed),
+            Err(ReadError::Memory(MemError::MapFailed))
+        );
+        assert!(fault::fired());
+        assert_eq!(open(ObjectClass::Ordinary, 2, &entry, &sealed), Ok(chunk));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn a_failed_context_reset_while_opening_is_a_zstd_error() {
+        let chunk = text(100_000);
+        let (entry, sealed) = seal(ObjectClass::Ordinary, 2, &chunk);
+        let _guard = fault::inject(Fault::Reset(0usize.wrapping_sub(1)));
+        assert!(matches!(
+            open(ObjectClass::Ordinary, 2, &entry, &sealed),
+            Err(ReadError::Zstd(CompressError::Zstd(_)))
+        ));
+    }
+
+    #[test]
     fn an_empty_chunk_opens_empty() {
         let entry = ChunkEntry::new(id(7), 0);
-        let sealed = seal_inner(&id(7), &encode_inner(Comp::Raw, b"").expect("encodes"));
+        let sealed = seal_inner(
+            &id(7),
+            &inner::encode_inner(Comp::Raw, b"").expect("encodes"),
+        );
         let keys = keys(2);
         let opened = ObjectOpener::new(&keys, ObjectClass::Ordinary, 1)
             .open(&mut Decompressor::new(), &entry, &sealed)

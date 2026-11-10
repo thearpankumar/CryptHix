@@ -6,7 +6,7 @@ use crypthix_types::format_error::FormatError;
 use crate::error::WriteError;
 use crate::inner::Comp;
 use crate::limits::{INNER_HEADER_LEN, MAX_PAYLOAD_LEN};
-use crate::pad::padme;
+use crate::pad;
 
 /// The inner plaintext of `payload`: `comp ‖ 0 ‖ u32be(len) ‖ payload ‖ zero pad`, padded to
 /// `padme(6 + len)` bytes (FS-54), in a new buffer of protected memory.
@@ -32,9 +32,11 @@ pub fn encode_inner(comp: Comp, payload: &[u8]) -> Result<SecretBuf, WriteError>
         return Err(FormatError::Limit.into());
     }
     let header_len = u32::try_from(payload.len()).map_err(|_| FormatError::Limit)?;
-    let total = padme(payload_len + INNER_HEADER_LEN as u64)
+    let total = pad::padme(payload_len + INNER_HEADER_LEN as u64)
         .and_then(|total| usize::try_from(total).ok())
         .ok_or(FormatError::Limit)?;
+    #[cfg(test)]
+    crate::fault::allocation()?;
     let mut inner = SecretBuf::try_zeroed(total)?;
     // `padme(6 + len) >= 6 + len`, so both splits succeed; failing instead keeps this
     // panic-free.
@@ -54,7 +56,10 @@ pub fn encode_inner(comp: Comp, payload: &[u8]) -> Result<SecretBuf, WriteError>
 
 #[cfg(test)]
 mod tests {
+    use crypthix_crypto::secure_mem::MemError;
+
     use super::*;
+    use crate::fault::{self, Fault};
 
     #[test]
     fn layout_is_header_payload_then_zero_pad() {
@@ -63,6 +68,15 @@ mod tests {
         assert_eq!(&inner[..6], &[1, 0, 0, 0, 0x03, 0xE8]);
         assert!(inner[6..1_006].iter().all(|byte| *byte == 0xAB));
         assert!(inner[1_006..].iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn no_protected_memory_fails_with_memory() {
+        let _guard = fault::inject(Fault::Allocation(0));
+        assert_eq!(
+            encode_inner(Comp::Raw, b"chunk").map(|_| ()),
+            Err(WriteError::Memory(MemError::MapFailed))
+        );
     }
 
     #[test]

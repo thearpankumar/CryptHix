@@ -17,10 +17,10 @@ use crate::limits::GEAR_TABLE_LEN;
 /// It is the first 2,048 bytes of the keyed BLAKE3 XOF under
 /// `K_gear = KDF(chunker_seed, -, kdf/gear, vault_id)` over the empty input, read as
 /// little-endian `u64` words. The shifted table that FastCDC also uses is computed from it as
-/// each word is read. It is kept in a [`SecretBuf`]: plaintext memory, locked where
-/// `RLIMIT_MEMLOCK` allows, wiped on free and left out of core dumps and forked children, but
-/// not in secret pages as keys are, which fits
-/// the design's assumption that the seed may leak anyway: keyed gear tables have been
+/// each word is read. It is kept in a [`SecretBuf`]: plaintext memory, wiped on free and, on
+/// Linux, locked where `RLIMIT_MEMLOCK` allows and left out of core dumps and forked children
+/// (plain heap memory elsewhere and under Miri), but not in secret pages as keys are, which
+/// fits the design's assumption that the seed may leak anyway: keyed gear tables have been
 /// recovered from observed chunk sizes (ePrint 2025/558). Padmé coarsens those sizes and packs
 /// hide them (T-84). Only ordinary objects are cut with it; secret-class objects are cut at
 /// fixed 1 MiB steps and never index it with their bytes (FS-52).
@@ -39,6 +39,8 @@ impl GearTable {
     pub fn derive(chunker_seed: &KdfKey, vault_id: &VaultId) -> Result<Self, MemError> {
         let context = KdfContext::new().field(vault_id.as_bytes());
         let key: XofKey = kdf::kdf(chunker_seed, None, XofKeyLabel::Gear, &context)?;
+        #[cfg(test)]
+        crate::fault::allocation()?;
         let mut table = SecretBuf::try_zeroed(GEAR_TABLE_LEN)?;
         mac::xof(&key, table.as_mut_slice());
         Ok(Self(table))
@@ -73,7 +75,19 @@ impl fmt::Debug for GearTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fault::{self, Fault};
     use crate::test_data::gear_table as table;
+
+    #[test]
+    fn no_protected_memory_fails_with_memory() {
+        let key = KdfKey::from_bytes([3; 32]).expect("non-zero key");
+        let vault_id = VaultId::try_from_bytes([0x11; 16]).expect("non-zero ID");
+        let _guard = fault::inject(Fault::Allocation(0));
+        assert_eq!(
+            GearTable::derive(&key, &vault_id).map(|_| ()),
+            Err(MemError::MapFailed)
+        );
+    }
 
     #[test]
     fn the_table_is_the_gear_xof_of_the_vault() {

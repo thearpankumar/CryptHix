@@ -3,23 +3,13 @@
 use crate::blob::ObjectClass;
 use crate::chunk::{ChunkParams, GearTable};
 
-/// The length of the first chunk of `data` in an ordinary object: all of it if it is no longer
-/// than the 64 KiB minimum, otherwise between the minimum and the 1 MiB maximum (FS-52). Zero
-/// only for empty `data`.
-///
-/// A secret-class object is not cut this way but at fixed 1 MiB steps. To cut a whole object
-/// of either class, use [`Chunks`](crate::chunk::Chunks) or
-/// [`StreamChunker`](crate::chunk::StreamChunker).
-#[must_use]
-pub fn cut(gear: &GearTable, data: &[u8]) -> usize {
-    cut_with(gear, data, &ChunkParams::FORMAT_0)
-}
-
 /// The length of the first chunk of `data` in an object of `class` (FS-52). The ordinary class
-/// takes the keyed FastCDC cut. The secret class takes the maximum, or all of `data` if it is
-/// shorter, and reads no byte of it: the FastCDC loop indexes the gear table with plaintext
-/// bytes and stops early where it cuts, which a process sharing the cache can time, and secret
-/// chunks never deduplicate, so content-defined cuts would give them nothing (T-84).
+/// takes the keyed FastCDC cut: all of `data` if it is no longer than the minimum, otherwise
+/// between the minimum and the maximum, and zero only for empty `data`. The secret class takes
+/// the maximum, or all of `data` if it is shorter, and reads no byte of it: the FastCDC loop
+/// indexes the gear table with plaintext bytes and stops early where it cuts, which a process
+/// sharing the cache can time, and secret chunks never deduplicate, so content-defined cuts
+/// would give them nothing (T-84).
 pub(crate) fn cut_for(
     class: ObjectClass,
     gear: &GearTable,
@@ -32,8 +22,8 @@ pub(crate) fn cut_for(
     }
 }
 
-/// [`cut`] with any sizes and masks: the loop of `fastcdc::v2020::cut_gear` 5.0.0, with
-/// `gear_ls[b]` computed as `gear[b] << 1`.
+/// The keyed FastCDC cut of an ordinary object, with any sizes and masks: the loop of
+/// `fastcdc::v2020::cut_gear` 5.0.0, with `gear_ls[b]` computed as `gear[b] << 1`.
 fn cut_with(gear: &GearTable, data: &[u8], params: &ChunkParams) -> usize {
     let mut remaining = data.len();
     if remaining <= params.min {
@@ -90,13 +80,17 @@ fn cut_with(gear: &GearTable, data: &[u8], params: &ChunkParams) -> usize {
 #[cfg(test)]
 mod tests {
     use fastcdc::v2020;
-    use proptest::collection::vec;
-    use proptest::prelude::{Just, Strategy, any, prop_assert_eq, prop_oneof, proptest};
+    use proptest::prelude::{Strategy, prop_assert_eq, prop_oneof, proptest};
 
     use super::*;
     use crate::limits::{MAX_CHUNK, MIN_CHUNK};
     use crate::test_data::gear_table as table;
-    use crate::test_data::{chunk_ranges, pseudo_random};
+    use crate::test_data::{any_byte, bytes, chunk_ranges, pseudo_random};
+
+    /// The first format 0 cut of `data` in an ordinary object.
+    fn cut(gear: &GearTable, data: &[u8]) -> usize {
+        cut_for(ObjectClass::Ordinary, gear, data, &ChunkParams::FORMAT_0)
+    }
 
     /// The chunk lengths fastcdc cuts from `data` with `gear`'s words.
     fn fastcdc_lengths(gear: &GearTable, data: &[u8], params: &ChunkParams) -> Vec<usize> {
@@ -233,15 +227,14 @@ mod tests {
     /// Bytes that cut often: random, a small alphabet, or long runs.
     fn data() -> impl Strategy<Value = Vec<u8>> {
         prop_oneof![
-            vec(any::<u8>(), 0..8_000),
-            vec(0u8..4, 0..8_000),
-            vec(prop_oneof![Just(0u8), Just(255u8)], 0..4_000),
+            bytes(0..8_000, any_byte),
+            bytes(0..8_000, |byte| byte % 4),
+            bytes(0..4_000, |byte| if byte & 1 == 0 { 0 } else { 255 }),
         ]
     }
 
     proptest! {
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
         fn scaled_chunks_match_fastcdc(seed in 1u8.., data in data()) {
             let gear = table(seed);
             let params = ChunkParams::SCALED;

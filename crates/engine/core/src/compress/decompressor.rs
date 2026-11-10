@@ -7,7 +7,7 @@ use crypthix_types::format_error::FormatError;
 use zstd_safe::{DCtx, DParameter, InBuffer, OutBuffer, ResetDirective};
 
 use crate::compress::CompressError;
-use crate::compress::frame_check::frame_check;
+use crate::compress::frame_check;
 use crate::error::ReadError;
 use crate::limits::{MAX_PLAIN_LEN, WINDOW_LOG};
 
@@ -33,8 +33,9 @@ impl Decompressor {
     /// 1. `plain_len` is at most 1 MiB, checked before anything else;
     /// 2. on first use, the linked libzstd is the version FS-53 pins and a context is made
     ///    ([`ReadError::Zstd`] if not), before any other call into libzstd;
-    /// 3. the frame is exactly one frame with no checksum, no dictionary ID, a declared content
-    ///    size equal to `plain_len` and a window of at most 1 MiB;
+    /// 3. the frame is exactly one single-segment frame, so its window is `plain_len`, with no
+    ///    checksum, no dictionary ID, a declared content size equal to `plain_len` and no block
+    ///    larger than `min(plain_len, 128 KiB)`;
     /// 4. a streaming decoder writes into a buffer of exactly `plain_len` bytes, and must fill
     ///    it, finish the frame and use every input byte; output that does not fit, or a frame
     ///    that ends early, fails.
@@ -54,11 +55,15 @@ impl Decompressor {
             Some(dctx) => dctx,
             slot @ None => slot.insert(context(zstd_safe::version_number)?),
         };
-        frame_check(frame, plain_len)?;
+        frame_check::frame_check(frame, plain_len)?;
         let len = usize::try_from(plain_len).map_err(|_| FormatError::Decompress)?;
         // A failed call leaves the context unusable until it is reset (zstd.h).
-        dctx.reset(ResetDirective::SessionOnly)
-            .map_err(|code| ReadError::Zstd(CompressError::from_code(code)))?;
+        let reset = dctx.reset(ResetDirective::SessionOnly);
+        #[cfg(test)]
+        let reset = crate::fault::reset(reset);
+        reset.map_err(|code| ReadError::Zstd(CompressError::from_code(code)))?;
+        #[cfg(test)]
+        crate::fault::allocation()?;
         let mut plain = SecretBuf::try_zeroed(len)?;
         let written = stream(dctx, frame, plain.as_mut_slice())?;
         // Defence in depth: zstd already fails a frame whose content differs from its declared
@@ -132,12 +137,17 @@ impl fmt::Debug for Decompressor {
 
 #[cfg(test)]
 mod tests {
+    use crypthix_crypto::secure_mem::MemError;
     use proptest::collection::vec;
-    use proptest::prelude::{any, prop_assert_eq, proptest};
+    use proptest::prelude::{Strategy, any, prop_assert_eq, prop_oneof, proptest};
+    use proptest::sample::Index;
     use zstd_safe::{CCtx, CParameter};
 
     use super::*;
-    use crate::compress::frame_check::tests::raw_frame;
+    use crate::blob::ObjectClass;
+    use crate::compress::Compressor;
+    use crate::fault::{self, Fault};
+    use crate::inner::{self, Comp};
 
     const FAIL: Result<Vec<u8>, ReadError> = Err(ReadError::Format(FormatError::Decompress));
 
@@ -205,7 +215,7 @@ mod tests {
         );
         assert!(decompressor.dctx.is_some(), "made at the first frame");
         let plain = decompressor
-            .decode(&raw_frame(b"hello", 5, 0, None), 5)
+            .decode(&frame_check::tests::raw_frame(b"hello", 5, 0), 5)
             .expect("decodes");
         assert_eq!(plain.as_slice(), b"hello");
     }
@@ -217,10 +227,13 @@ mod tests {
         let frame = frame_of(&data, &[]);
         assert_eq!(decode(&frame, 300_000), Ok(data));
         assert_eq!(
-            decode(&raw_frame(b"hello", 5, 0, None), 5),
+            decode(&frame_check::tests::raw_frame(b"hello", 5, 0), 5),
             Ok(b"hello".to_vec())
         );
-        assert_eq!(decode(&raw_frame(b"", 0, 0, None), 0), Ok(Vec::new()));
+        assert_eq!(
+            decode(&frame_check::tests::raw_frame(b"", 0, 0), 0),
+            Ok(Vec::new())
+        );
     }
 
     #[test]
@@ -238,8 +251,14 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "calls into libzstd")]
     fn content_longer_or_shorter_than_declared_fails() {
-        assert_eq!(decode(&raw_frame(b"hello!", 5, 0, None), 5), FAIL);
-        assert_eq!(decode(&raw_frame(b"hell", 5, 0, None), 5), FAIL);
+        assert_eq!(
+            decode(&frame_check::tests::raw_frame(b"hello!", 5, 0), 5),
+            FAIL
+        );
+        assert_eq!(
+            decode(&frame_check::tests::raw_frame(b"hell", 5, 0), 5),
+            FAIL
+        );
     }
 
     #[test]
@@ -254,14 +273,14 @@ mod tests {
     #[cfg_attr(miri, ignore = "calls into libzstd")]
     fn frames_with_a_dictionary_id_fail() {
         // Well-formed frames of one raw block that name dictionary 7, then 0x01020304.
-        let mut frame = raw_frame(b"hello", 5, 1, None);
+        let mut frame = frame_check::tests::raw_frame(b"hello", 5, 1);
         frame.insert(5, 7);
         assert_eq!(
             zstd_safe::get_dict_id_from_frame(&frame).map(u32::from),
             Some(7)
         );
         assert_eq!(decode(&frame, 5), FAIL);
-        let mut frame = raw_frame(b"hello", 5, 3, None);
+        let mut frame = frame_check::tests::raw_frame(b"hello", 5, 3);
         frame.splice(5..5, 0x0102_0304_u32.to_le_bytes());
         assert_eq!(
             zstd_safe::get_dict_id_from_frame(&frame).map(u32::from),
@@ -294,9 +313,62 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore = "calls into libzstd")]
-    fn a_window_over_one_mib_fails() {
-        // A window descriptor of 2 MiB on content that is small enough.
-        assert_eq!(decode(&raw_frame(b"hello", 5, 0, Some(11 << 3)), 5), FAIL);
+    fn a_window_descriptor_fails() {
+        // Not a single segment: a four-byte content size, then a window descriptor of 1 MiB.
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0x80, 10 << 3];
+        frame.extend_from_slice(&5u32.to_le_bytes());
+        frame.extend_from_slice(&[0x29, 0, 0]);
+        frame.extend_from_slice(b"hello");
+        let mut out = [0u8; 5];
+        assert_eq!(zstd_safe::decompress(&mut out[..], &frame), Ok(5));
+        assert_eq!(decode(&frame, 5), FAIL);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn a_block_over_the_block_maximum_fails() {
+        // One RLE block of 2^20 zeros: libzstd decodes it when the whole frame arrives at once,
+        // as it does here, so the decoder alone would accept it.
+        let mut frame = vec![0x28, 0xB5, 0x2F, 0xFD, 0xA0];
+        frame.extend_from_slice(&(1u32 << 20).to_le_bytes());
+        frame.extend_from_slice(&((1u32 << 23) | 0b011).to_le_bytes()[..3]);
+        frame.push(0);
+        let mut decompressor = Decompressor::new();
+        let mut out = vec![0u8; 1 << 20];
+        assert_eq!(zstd_safe::decompress(&mut out[..], &frame), Ok(1 << 20));
+        assert_eq!(
+            decompressor.decode(&frame, 1 << 20).map(|_| ()),
+            Err(ReadError::Format(FormatError::Decompress))
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn a_failed_context_reset_is_a_zstd_error() {
+        // ZSTD_error_GENERIC, as a negated size_t.
+        let code = 0usize.wrapping_sub(1);
+        let frame = frame_check::tests::raw_frame(b"hello", 5, 0);
+        let mut decompressor = Decompressor::new();
+        let guard = fault::inject(Fault::Reset(code));
+        assert_eq!(
+            decompressor.decode(&frame, 5).map(|_| ()),
+            Err(ReadError::Zstd(CompressError::from_code(code)))
+        );
+        assert!(fault::fired(), "the frame passed its checks first");
+        drop(guard);
+        let plain = decompressor.decode(&frame, 5).expect("decodes");
+        assert_eq!(plain.as_slice(), b"hello");
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "calls into libzstd")]
+    fn no_protected_memory_for_the_output_fails_with_memory() {
+        let frame = frame_check::tests::raw_frame(b"hello", 5, 0);
+        let _guard = fault::inject(Fault::Allocation(0));
+        assert_eq!(
+            decode(&frame, 5),
+            Err(ReadError::Memory(MemError::MapFailed))
+        );
     }
 
     #[test]
@@ -334,5 +406,169 @@ mod tests {
         fn arbitrary_bytes_never_panic(bytes in vec(any::<u8>(), 0..200), len in 0u64..300) {
             let _ = decode(&bytes, len);
         }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "calls into libzstd")]
+        fn a_changed_frame_is_refused_unless_libzstd_decodes_it_alike(
+            valid in valid_frame(),
+            mutation in mutation(),
+        ) {
+            let ValidFrame { frame, plain, kind } = valid;
+            let len = plain.len() as u64;
+            prop_assert_eq!(decode(&frame, len), Ok(plain.clone()), "the valid frame decodes");
+            let header_len = header_len(&frame);
+            let mut changed = frame.clone();
+            let mut plain_len = len;
+            // What the change must give: an exact plaintext, a refusal, or, for a byte changed
+            // in a block, either a refusal or what libzstd itself decodes.
+            let expected: Option<Result<Vec<u8>, ReadError>> = match mutation {
+                Mutation::Header(at, xor) => {
+                    changed[at.index(header_len)] ^= xor;
+                    Some(FAIL)
+                }
+                Mutation::Descriptor(descriptor) => {
+                    changed[4] = descriptor;
+                    Some(if descriptor == frame[4] { Ok(plain.clone()) } else { FAIL })
+                }
+                Mutation::PlainLen(up) => {
+                    plain_len = if up || len == 0 { len + 1 } else { len - 1 };
+                    Some(FAIL)
+                }
+                Mutation::Truncate(at) => {
+                    changed.truncate(at.index(frame.len()));
+                    Some(FAIL)
+                }
+                Mutation::Append(extra) => {
+                    changed.extend_from_slice(&extra);
+                    Some(FAIL)
+                }
+                Mutation::Body(at, xor) => {
+                    let at = header_len + at.index(frame.len() - header_len);
+                    changed[at] ^= xor;
+                    // The content of a raw or RLE block is copied out as it is.
+                    let content = at.checked_sub(header_len + 3);
+                    match (kind, content) {
+                        (Kind::Raw, Some(offset)) => {
+                            let mut expected = plain.clone();
+                            expected[offset] ^= xor;
+                            Some(Ok(expected))
+                        }
+                        (Kind::Rle(byte), Some(_)) => Some(Ok(vec![byte ^ xor; plain.len()])),
+                        _ => None,
+                    }
+                }
+            };
+            let result = decode(&changed, plain_len);
+            match expected {
+                Some(expected) => prop_assert_eq!(result, expected),
+                None => match result {
+                    Ok(out) => prop_assert_eq!(
+                        Some(out),
+                        libzstd_decodes(&changed, plain_len),
+                        "accepted, so libzstd decodes it to the same plain_len bytes"
+                    ),
+                    Err(error) => prop_assert_eq!(Err(error), FAIL, "the only error a frame causes"),
+                },
+            }
+        }
+    }
+
+    /// What a valid frame holds.
+    #[derive(Clone, Copy, Debug)]
+    enum Kind {
+        /// Compressed blocks, as the compressor writes them.
+        Compressed,
+        /// One raw block.
+        Raw,
+        /// One RLE block of this byte.
+        Rle(u8),
+    }
+
+    /// A frame the reader accepts and the plaintext it decodes to.
+    #[derive(Clone, Debug)]
+    struct ValidFrame {
+        frame: Vec<u8>,
+        plain: Vec<u8>,
+        kind: Kind,
+    }
+
+    /// The compressor's frame of a compressible chunk, or a hand-built frame of one raw or RLE
+    /// block.
+    fn valid_frame() -> impl Strategy<Value = ValidFrame> {
+        prop_oneof![
+            vec(0u8..4, 0..4_000).prop_map(|plain| {
+                let inner = Compressor::new()
+                    .expect("context")
+                    .encode_chunk(&plain, ObjectClass::Ordinary)
+                    .expect("encodes");
+                let view = inner::decode_inner(&inner).expect("well formed");
+                match view.comp() {
+                    Comp::Zstd => ValidFrame {
+                        frame: view.payload().to_vec(),
+                        plain,
+                        kind: Kind::Compressed,
+                    },
+                    // Too short to compress: the same bytes in a raw block.
+                    _ => raw(plain),
+                }
+            }),
+            vec(any::<u8>(), 0..600).prop_map(raw),
+            (any::<u8>(), 0u32..3_000).prop_map(|(byte, len)| ValidFrame {
+                frame: frame_check::tests::rle_frame(byte, len),
+                plain: vec![byte; usize::try_from(len).expect("small")],
+                kind: Kind::Rle(byte),
+            }),
+        ]
+    }
+
+    fn raw(plain: Vec<u8>) -> ValidFrame {
+        let len = u32::try_from(plain.len()).expect("small");
+        ValidFrame {
+            frame: frame_check::tests::raw_frame(&plain, len, 0),
+            plain,
+            kind: Kind::Raw,
+        }
+    }
+
+    /// One change to a valid frame or to the `plain_len` it is decoded with.
+    #[derive(Clone, Debug)]
+    enum Mutation {
+        /// A byte of the frame header (magic, descriptor or content size) XOR-ed with a
+        /// non-zero value.
+        Header(Index, u8),
+        /// The descriptor set to any value, its own included.
+        Descriptor(u8),
+        /// A byte after the header, in a block header or block content, XOR-ed.
+        Body(Index, u8),
+        /// `plain_len` one higher, or one lower.
+        PlainLen(bool),
+        /// The frame cut to a shorter length.
+        Truncate(Index),
+        /// Bytes appended to the frame.
+        Append(Vec<u8>),
+    }
+
+    fn mutation() -> impl Strategy<Value = Mutation> {
+        prop_oneof![
+            (any::<Index>(), 1u8..).prop_map(|(at, xor)| Mutation::Header(at, xor)),
+            any::<u8>().prop_map(Mutation::Descriptor),
+            (any::<Index>(), 1u8..).prop_map(|(at, xor)| Mutation::Body(at, xor)),
+            any::<bool>().prop_map(Mutation::PlainLen),
+            any::<Index>().prop_map(Mutation::Truncate),
+            vec(any::<u8>(), 1..16).prop_map(Mutation::Append),
+        ]
+    }
+
+    /// The length of a single-segment frame header: magic, descriptor and content size field.
+    fn header_len(frame: &[u8]) -> usize {
+        5 + [1, 2, 4, 8][usize::from(frame[4] >> 6)]
+    }
+
+    /// The `plain_len` bytes libzstd's one-shot decoder makes of `frame`, if it makes exactly
+    /// that many.
+    fn libzstd_decodes(frame: &[u8], plain_len: u64) -> Option<Vec<u8>> {
+        let mut out = vec![0u8; usize::try_from(plain_len).ok()?];
+        let written = zstd_safe::decompress(&mut out[..], frame).ok()?;
+        (written == out.len()).then_some(out)
     }
 }

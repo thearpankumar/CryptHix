@@ -8,13 +8,17 @@
 //!
 //! Keys are bound to what they were derived for: [`ChunkKeys`] to its object's
 //! [`BlobContext`], used through an [`ObjectSealer`] or [`ObjectOpener`] built once per object
-//! with its class and chunk count, and a [`MetaKey`] to its [`MetaContext`].
+//! with its class and chunk count, and a [`MetaKey`] to its [`MetaContext`]. The keys, the AADs
+//! and the raw seal are not public, so data and meta blobs are sealed and opened only through
+//! those; the `vectors` feature, which `cargo xtask check-features` keeps out of release
+//! builds, exposes them to the test-vector runners and fuzz targets.
 
 mod blob_context;
 mod blob_id_kind;
 mod chunk_entry;
 mod chunk_keys;
 mod data_blob_aad;
+mod identified_chunk;
 mod meta_blob_aad;
 mod meta_context;
 mod meta_key;
@@ -32,8 +36,15 @@ pub use blob_context::BlobContext;
 pub use blob_id_kind::BlobIdKind;
 pub use chunk_entry::ChunkEntry;
 pub use chunk_keys::ChunkKeys;
-pub use data_blob_aad::{DATA_BLOB_KIND, data_blob_aad};
+#[cfg(feature = "vectors")]
+pub use data_blob_aad::data_blob_aad;
+#[cfg(not(feature = "vectors"))]
+pub(crate) use data_blob_aad::data_blob_aad;
+pub use identified_chunk::IdentifiedChunk;
+#[cfg(feature = "vectors")]
 pub use meta_blob_aad::meta_blob_aad;
+#[cfg(not(feature = "vectors"))]
+pub(crate) use meta_blob_aad::meta_blob_aad;
 pub use meta_context::MetaContext;
 pub use meta_key::MetaKey;
 pub use meta_kind::MetaKind;

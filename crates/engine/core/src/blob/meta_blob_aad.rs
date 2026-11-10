@@ -7,7 +7,13 @@ use crypthix_types::id::BlobId;
 use crate::blob::MetaContext;
 
 /// `u8 len ‖ "crypthix/v0/aad/blob-meta" ‖ fmt ‖ suite ‖ vault_id ‖ u8 kind ‖ u32be epoch ‖
-/// blob_id` (FS-57).
+/// blob_id` (FS-57). Public only with the `vectors` feature, for the test-vector runners;
+/// [`seal_meta_blob`](crate::blob::seal_meta_blob) and
+/// [`open_meta_blob`](crate::blob::open_meta_blob) build it from the key's own context.
+#[cfg_attr(
+    not(feature = "vectors"),
+    expect(unreachable_pub, reason = "public only with `vectors`, for TV-07")
+)]
 pub fn meta_blob_aad(context: &MetaContext, blob_id: &BlobId) -> Aad {
     Aad::new(AadLabel::BlobMeta)
         .field(context.vault_id().as_bytes())

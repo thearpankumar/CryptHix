@@ -18,15 +18,6 @@ pub enum MetaKind {
 }
 
 impl MetaKind {
-    /// Every kind, in code order.
-    pub const ALL: [MetaKind; 5] = [
-        MetaKind::Index,
-        MetaKind::KeyTable,
-        MetaKind::Location,
-        MetaKind::PackTable,
-        MetaKind::GcCandidate,
-    ];
-
     /// The kind byte.
     #[must_use]
     pub const fn code(self) -> u8 {
@@ -40,7 +31,9 @@ impl MetaKind {
     }
 
     /// The kind a byte names; `None` for data (0x01), manifest (0x02), the reserved snapshot
-    /// node (0x07) and anything unknown.
+    /// node (0x07) and anything unknown. For the unit tests and, with the `vectors` feature, the
+    /// test-vector runners.
+    #[cfg(any(test, feature = "vectors"))]
     #[must_use]
     pub const fn from_code(code: u8) -> Option<Self> {
         match code {
@@ -58,12 +51,21 @@ impl MetaKind {
 mod tests {
     use super::*;
 
+    /// Every kind, in code order.
+    const ALL: [MetaKind; 5] = [
+        MetaKind::Index,
+        MetaKind::KeyTable,
+        MetaKind::Location,
+        MetaKind::PackTable,
+        MetaKind::GcCandidate,
+    ];
+
     #[test]
     fn codes_round_trip_and_others_are_not_meta() {
-        for kind in MetaKind::ALL {
+        for kind in ALL {
             assert_eq!(MetaKind::from_code(kind.code()), Some(kind));
         }
-        let known: Vec<u8> = MetaKind::ALL.iter().map(|kind| kind.code()).collect();
+        let known: Vec<u8> = ALL.iter().map(|kind| kind.code()).collect();
         assert_eq!(known, [3, 4, 5, 6, 8]);
         for code in [0, 1, 2, 7, 9, 0xFF] {
             assert_eq!(MetaKind::from_code(code), None, "{code}");

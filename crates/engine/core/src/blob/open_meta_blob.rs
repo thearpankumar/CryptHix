@@ -4,7 +4,7 @@ use crypthix_crypto::cx_aead;
 use crypthix_crypto::secure_mem::SecretBuf;
 use crypthix_types::id::BlobId;
 
-use crate::blob::{MetaKey, meta_blob_aad};
+use crate::blob::{self, MetaKey};
 use crate::error::ReadError;
 
 /// Opens the meta blob `blob_id` under `key`, with the AAD of the context it was derived for,
@@ -26,7 +26,7 @@ pub fn open_meta_blob(
     blob_id: &BlobId,
     sealed: &[u8],
 ) -> Result<SecretBuf, ReadError> {
-    let aad = meta_blob_aad(key.context(), blob_id);
+    let aad = blob::meta_blob_aad(key.context(), blob_id);
     Ok(cx_aead::open(key.seal_key(), &aad, sealed)?)
 }
 
@@ -39,7 +39,7 @@ mod tests {
 
     use super::*;
     use crate::blob::meta_key::tests::meta_context;
-    use crate::blob::{MetaContext, MetaKind, seal_meta_blob};
+    use crate::blob::{MetaContext, MetaKind};
 
     const DECRYPT: Result<(), ReadError> = Err(ReadError::Format(FormatError::Decrypt));
 
@@ -58,8 +58,8 @@ mod tests {
     #[test]
     fn meta_blobs_round_trip_with_random_ids() {
         let key = key(meta_context(MetaKind::PackTable, 2));
-        let first = seal_meta_blob(&key, b"\xa0").expect("seals");
-        let second = seal_meta_blob(&key, b"\xa0").expect("seals");
+        let first = blob::seal_meta_blob(&key, b"\xa0").expect("seals");
+        let second = blob::seal_meta_blob(&key, b"\xa0").expect("seals");
         assert_ne!(first.blob_id(), second.blob_id(), "blob IDs are random");
         let opened = open_meta_blob(&key, first.blob_id(), first.sealed()).expect("opens");
         assert_eq!(opened.as_slice(), b"\xa0");
@@ -73,7 +73,7 @@ mod tests {
     fn every_bound_field_is_checked() {
         let context = meta_context(MetaKind::Location, 2);
         let key = key(context);
-        let sealed = seal_meta_blob(&key, b"node").expect("seals");
+        let sealed = blob::seal_meta_blob(&key, b"node").expect("seals");
         let id = *sealed.blob_id();
         let bytes = sealed.sealed();
         let other_id = BlobId::try_from_bytes([9; 32]).expect("non-zero");
@@ -96,7 +96,7 @@ mod tests {
             (later, "epoch"),
             (vault, "vault"),
         ] {
-            let aad = meta_blob_aad(&other, &id);
+            let aad = blob::meta_blob_aad(&other, &id);
             let resealed =
                 cx_aead::seal(key.seal_key(), &aad, b"node", NonceKind::Hedged).expect("seals");
             assert_eq!(open(&key, &id, &resealed), DECRYPT, "{field}");
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn an_all_zero_nonce_is_a_zero_value() {
         let key = key(meta_context(MetaKind::KeyTable, 2));
-        let sealed = seal_meta_blob(&key, b"node").expect("seals");
+        let sealed = blob::seal_meta_blob(&key, b"node").expect("seals");
         let mut zeroed = sealed.sealed().to_vec();
         zeroed[..cx_aead::NONCE_LEN].fill(0);
         assert_eq!(

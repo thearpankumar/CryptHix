@@ -4,7 +4,7 @@ use crypthix_types::format_error::FormatError;
 
 use crate::inner::{Comp, InnerView};
 use crate::limits::{INNER_HEADER_LEN, MAX_PAYLOAD_LEN};
-use crate::pad::padme;
+use crate::pad;
 
 /// Checks an opened inner plaintext and returns its compression and payload (FS-54).
 ///
@@ -33,7 +33,7 @@ pub fn decode_inner(inner: &[u8]) -> Result<InnerView<'_>, FormatError> {
         return Err(FormatError::Limit);
     }
     // At most 6 + 2^20, so the sum and its Padmé length always fit.
-    let expected = padme(payload_len + INNER_HEADER_LEN as u64);
+    let expected = pad::padme(payload_len + INNER_HEADER_LEN as u64);
     if expected != Some(inner.len() as u64) {
         return Err(FormatError::Padding);
     }
@@ -50,14 +50,18 @@ pub fn decode_inner(inner: &[u8]) -> Result<InnerView<'_>, FormatError> {
 #[cfg(test)]
 mod tests {
     use proptest::collection::vec;
-    use proptest::prelude::{any, prop_assert_eq, proptest};
+    use proptest::prelude::{
+        Strategy, TestCaseError, any, prop_assert, prop_assert_eq, prop_oneof, proptest,
+    };
+    use proptest::sample::Index;
 
     use super::*;
-    use crate::inner::encode_inner;
+    use crate::inner;
+    use crate::test_data::{any_byte, bytes};
 
     /// A well-formed inner plaintext of `payload_len` bytes of 0x55, as plain bytes.
     fn inner(comp: u8, payload_len: usize) -> Vec<u8> {
-        let total = padme(payload_len as u64 + 6).expect("fits");
+        let total = pad::padme(payload_len as u64 + 6).expect("fits");
         let mut bytes = vec![0u8; usize::try_from(total).expect("fits")];
         bytes[0] = comp;
         let len = u32::try_from(payload_len).expect("fits");
@@ -149,25 +153,156 @@ mod tests {
         }
     }
 
+    /// One change to a valid inner plaintext.
+    #[derive(Clone, Debug)]
+    enum Mutation {
+        /// A byte anywhere XOR-ed with a non-zero value.
+        Flip(Index, u8),
+        /// One byte more (a zero) or one fewer.
+        Resize(bool),
+        /// The `comp` byte set to any value, its own included.
+        Comp(u8),
+        /// The `rsv` byte set to any value, zero included.
+        Rsv(u8),
+        /// `payload_len` moved by this much, wrapping, with the bytes left as they are.
+        PayloadLen(i32),
+        /// `payload_len` set to any value.
+        AnyPayloadLen(u32),
+        /// The bytes cut to a shorter length.
+        Truncate(Index),
+        /// Bytes appended.
+        Append(Vec<u8>),
+    }
+
+    fn mutation() -> impl Strategy<Value = Mutation> {
+        prop_oneof![
+            (any::<Index>(), 1u8..).prop_map(|(at, xor)| Mutation::Flip(at, xor)),
+            any::<bool>().prop_map(Mutation::Resize),
+            any::<u8>().prop_map(Mutation::Comp),
+            any::<u8>().prop_map(Mutation::Rsv),
+            prop_oneof![-2i32..=2, -8_192i32..8_192].prop_map(Mutation::PayloadLen),
+            any::<u32>().prop_map(Mutation::AnyPayloadLen),
+            any::<Index>().prop_map(Mutation::Truncate),
+            vec(any::<u8>(), 1..16).prop_map(Mutation::Append),
+        ]
+    }
+
+    fn apply(bytes: &mut Vec<u8>, mutation: &Mutation) {
+        match mutation {
+            Mutation::Flip(at, xor) => {
+                let at = at.index(bytes.len());
+                bytes[at] ^= xor;
+            }
+            Mutation::Resize(true) => bytes.push(0),
+            Mutation::Resize(false) => {
+                bytes.pop();
+            }
+            Mutation::Comp(comp) => bytes[0] = *comp,
+            Mutation::Rsv(rsv) => bytes[1] = *rsv,
+            Mutation::PayloadLen(delta) => {
+                let len = u32::from_be_bytes(bytes[2..6].try_into().expect("four bytes"));
+                bytes[2..6].copy_from_slice(&len.wrapping_add_signed(*delta).to_be_bytes());
+            }
+            Mutation::AnyPayloadLen(len) => bytes[2..6].copy_from_slice(&len.to_be_bytes()),
+            Mutation::Truncate(at) => {
+                let len = at.index(bytes.len());
+                bytes.truncate(len);
+            }
+            Mutation::Append(extra) => bytes.extend_from_slice(extra),
+        }
+    }
+
+    /// The one inner plaintext `bytes` could be: the encoding of the `comp` and payload its
+    /// header names, if those are valid; `None` if no encoding starts like `bytes`.
+    fn candidate(bytes: &[u8]) -> Option<(Comp, Vec<u8>, Vec<u8>)> {
+        let header = bytes.get(..6)?;
+        let comp = match header[0] {
+            0 => Comp::Raw,
+            1 => Comp::Zstd,
+            _ => return None,
+        };
+        let len = usize::try_from(u32::from_be_bytes(header[2..6].try_into().ok()?)).ok()?;
+        let payload = bytes.get(6..6_usize.checked_add(len)?)?;
+        let encoded = inner::encode_inner(comp, payload).ok()?;
+        Some((comp, payload.to_vec(), encoded.to_vec()))
+    }
+
+    /// Checks `decode_inner` against [`candidate`]: it accepts exactly the bytes that are the
+    /// encoding of what they decode to, and fails otherwise with `Limit` when a valid `comp`
+    /// and `rsv` precede a `payload_len` over 1 MiB, else with `Padding`.
+    fn check_canonical(bytes: &[u8]) -> Result<(), TestCaseError> {
+        let canonical = candidate(bytes).filter(|(_, _, encoded)| encoded == bytes);
+        match (decode_inner(bytes), canonical) {
+            (Ok(view), Some((comp, payload, _))) => {
+                prop_assert_eq!(view.comp(), comp);
+                prop_assert_eq!(view.payload(), payload.as_slice());
+            }
+            (Ok(_), None) => prop_assert!(false, "accepted bytes that are not an encoding"),
+            (Err(error), Some(_)) => prop_assert!(false, "refused an encoding: {:?}", error),
+            (Err(error), None) => {
+                let over_cap = bytes.len() >= 6
+                    && bytes[0] <= 1
+                    && bytes[1] == 0
+                    && u32::from_be_bytes(bytes[2..6].try_into().expect("four bytes")) > 1 << 20;
+                let expected = if over_cap {
+                    FormatError::Limit
+                } else {
+                    FormatError::Padding
+                };
+                prop_assert_eq!(error, expected);
+            }
+        }
+        Ok(())
+    }
+
     proptest! {
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
-        fn encode_then_decode_round_trips(payload in vec(any::<u8>(), 0..5_000), zstd in any::<bool>()) {
+        fn encode_then_decode_round_trips(payload in bytes(0..5_000, any_byte), zstd in any::<bool>()) {
             let comp = if zstd { Comp::Zstd } else { Comp::Raw };
-            let encoded = encode_inner(comp, &payload).expect("encodes");
-            prop_assert_eq!(encoded.len() as u64, padme(payload.len() as u64 + 6).expect("fits"));
+            let encoded = inner::encode_inner(comp, &payload).expect("encodes");
+            prop_assert_eq!(encoded.len() as u64, pad::padme(payload.len() as u64 + 6).expect("fits"));
             let view = decode_inner(&encoded).expect("decodes");
             prop_assert_eq!(view.comp(), comp);
             prop_assert_eq!(view.payload(), payload.as_slice());
         }
 
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri")]
-        fn decoding_never_panics_and_accepts_only_its_own_encoding(bytes in vec(any::<u8>(), 0..300)) {
-            if let Ok(view) = decode_inner(&bytes) {
-                let encoded = encode_inner(view.comp(), view.payload()).expect("encodes");
-                prop_assert_eq!(encoded.as_slice(), bytes.as_slice());
+        fn a_changed_encoding_is_accepted_only_if_it_is_still_an_encoding(
+            payload in bytes(0..3_000, any_byte),
+            zstd in any::<bool>(),
+            mutation in mutation(),
+        ) {
+            let comp = if zstd { Comp::Zstd } else { Comp::Raw };
+            let mut bytes = inner::encode_inner(comp, &payload).expect("encodes").to_vec();
+            check_canonical(&bytes)?;
+            let len = bytes.len();
+            apply(&mut bytes, &mutation);
+            check_canonical(&bytes)?;
+            // Where the outcome follows from the change alone, check it directly too. A new
+            // `payload_len` can still name a valid encoding, of a payload ending in zeros or
+            // with fewer bytes, so only [`check_canonical`] judges those.
+            let keeps = match &mutation {
+                Mutation::Flip(at, _) => match at.index(len) {
+                    0 => Some(bytes[0] <= 1),
+                    1 => Some(false),
+                    2..6 => None,
+                    at => Some(at < 6 + payload.len()),
+                },
+                Mutation::Comp(code) => Some(*code <= 1),
+                Mutation::Rsv(rsv) => Some(*rsv == 0),
+                Mutation::PayloadLen(0) => Some(true),
+                Mutation::AnyPayloadLen(new) if *new as usize == payload.len() => Some(true),
+                Mutation::PayloadLen(_) | Mutation::AnyPayloadLen(_) => None,
+                Mutation::Resize(_) | Mutation::Truncate(_) | Mutation::Append(_) => Some(false),
+            };
+            if let Some(keeps) = keeps {
+                prop_assert_eq!(decode_inner(&bytes).is_ok(), keeps, "{:?}", mutation);
             }
+        }
+
+        #[test]
+        fn arbitrary_bytes_decode_only_if_they_are_an_encoding(bytes in vec(any::<u8>(), 0..300)) {
+            check_canonical(&bytes)?;
         }
     }
 }

@@ -3,12 +3,15 @@
 use std::fmt;
 
 use crate::blob::ObjectClass;
-use crate::chunk::ObjectShape;
+use crate::chunk::{ChunkCount, ObjectShape};
 
-/// A chunk cut by a [`StreamChunker`](crate::chunk::StreamChunker), borrowed from its window.
+/// A chunk cut by a [`StreamChunker`](crate::chunk::StreamChunker), borrowed from its window, or
+/// by [`Chunks::chunk_refs`](crate::chunk::Chunks::chunk_refs), borrowed from the data.
 ///
 /// [`is_last`](ChunkRef::is_last) is known when the chunk is cut, so a writer knows at the first
-/// chunk whether the object has a single chunk, which decides its blob IDs (FS-55).
+/// chunk whether the object has a single chunk, which decides its blob IDs (FS-55). Only the
+/// chunker makes one, so the [`ObjectSealer`](crate::blob::ObjectSealer) that takes it can trust
+/// its index, whether it is the last, and its object's class.
 #[derive(Clone, Copy)]
 pub struct ChunkRef<'a> {
     bytes: &'a [u8],
@@ -30,6 +33,20 @@ impl<'a> ChunkRef<'a> {
             is_last,
             class,
         }
+    }
+
+    /// A chunk with any bytes, index, last flag and class, for the test-vector runners and
+    /// fuzz targets only: it bypasses the chunker, so it can claim a shape the bytes do not
+    /// have.
+    #[cfg(feature = "vectors")]
+    #[must_use]
+    pub const fn from_parts(
+        bytes: &'a [u8],
+        index: u64,
+        is_last: bool,
+        class: ObjectClass,
+    ) -> Self {
+        Self::new(bytes, index, is_last, class)
     }
 
     /// The chunk's bytes.
@@ -56,7 +73,12 @@ impl<'a> ChunkRef<'a> {
     /// [`ObjectSealer::new`](crate::blob::ObjectSealer::new) (FS-55).
     #[must_use]
     pub const fn object_shape(&self) -> ObjectShape {
-        ObjectShape::new(self.class, self.index == 0 && self.is_last)
+        let count = if self.index == 0 && self.is_last {
+            ChunkCount::One
+        } else {
+            ChunkCount::Many
+        };
+        ObjectShape::new(self.class, count)
     }
 }
 
@@ -91,9 +113,14 @@ mod tests {
     #[test]
     fn the_shape_is_single_only_for_a_first_chunk_that_is_also_last() {
         for class in [ObjectClass::Ordinary, ObjectClass::Secret] {
-            for (index, is_last, single) in [(0, true, true), (0, false, false), (1, true, false)] {
+            let cases = [
+                (0, true, ChunkCount::One),
+                (0, false, ChunkCount::Many),
+                (1, true, ChunkCount::Many),
+            ];
+            for (index, is_last, count) in cases {
                 let shape = ChunkRef::new(b"x", index, is_last, class).object_shape();
-                assert_eq!(shape, ObjectShape::new(class, single), "{index} {is_last}");
+                assert_eq!(shape, ObjectShape::new(class, count), "{index} {is_last}");
             }
         }
     }

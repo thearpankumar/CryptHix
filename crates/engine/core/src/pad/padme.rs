@@ -69,7 +69,6 @@ mod tests {
 
     proptest! {
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri; pure integer arithmetic")]
         fn padme_rounds_up_to_its_step(len in 2u64..(1 << 40)) {
             let padded = padme(len).expect("small lengths fit");
             let e = len.ilog2();
@@ -84,7 +83,6 @@ mod tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore = "proptest is slow under Miri; pure integer arithmetic")]
         fn padme_is_idempotent_and_monotone(len in 0u64..(1 << 40)) {
             let padded = padme(len).expect("small lengths fit");
             prop_assert_eq!(padme(padded), Some(padded));
