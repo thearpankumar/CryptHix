@@ -67,6 +67,7 @@ jobs:
               - "crates/engine/core/**"
               - "Cargo.lock"
               - "rust-toolchain.toml"
+              - "xtask/src/zstd_link.rs"
               - ".github/workflows/ci.yml"
             kernel:
               - "crates/foundation/types/**"
@@ -337,6 +338,27 @@ jobs:
           cargo clippy -p crypthix-crypto -p crypthix-core --all-features --all-targets --locked
           --target x86_64-pc-windows-gnu -- -D warnings
 
+  # crypthix-core's tests on Windows with MSVC, which builds libzstd with cl.exe, so a TV-07
+  # mismatch or a link problem there shows up on the pull request, not the next night.
+  windows-test:
+    name: Test crypthix-core on Windows
+    needs: changes
+    # `changes` is skipped on push, so this job must not require it to succeed.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.crypto == 'true') }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          cache-key: windows-test
+      - run: cargo test -p crypthix-core --all-features --locked
+      - run: cargo xtask check-zstd-link
+
   # Protected key memory on a kernel with the CVE-2026-93243 fix and one without it, booted in
   # QEMU with virtme-ng (about 5 minutes per kernel, side by side).
   kernel-test:
@@ -426,6 +448,7 @@ jobs:
       - deny
       - side
       - windows-clippy
+      - windows-test
       - kernel-test
       - fuzz-smoke
       - mutants
@@ -436,5 +459,5 @@ jobs:
       - uses: re-actors/alls-green@b5b5b37504aa4183270bd3d855c52a67f212be35 # v1.3.0
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: changes, pr, links, side, windows-clippy, kernel-test, fuzz-smoke, mutants
+          allowed-skips: changes, pr, links, side, windows-clippy, windows-test, kernel-test, fuzz-smoke, mutants
           allowed-failures: mutants
