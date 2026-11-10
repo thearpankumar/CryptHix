@@ -195,9 +195,8 @@ mod tests {
     use proptest::prelude::{any, prop_assert_eq, proptest};
 
     use super::*;
-    use crate::chunk::Chunks;
     use crate::test_data::gear_table as table;
-    use crate::test_data::pseudo_random;
+    use crate::test_data::{chunk_ranges, most_chunks, pseudo_random};
 
     /// A reader that returns at most the next step's bytes per call, and `Interrupted` where a
     /// step is 0.
@@ -221,7 +220,9 @@ mod tests {
         }
     }
 
-    /// Every chunk as its offsets, index, last flag and bytes.
+    /// Every chunk of the `total` bytes of `reader` as its offsets, index, last flag and bytes.
+    /// Fails at once on an empty chunk or more than [`most_chunks`], so a chunker that stops
+    /// advancing cannot loop on.
     fn streamed<R: Read>(
         gear: &GearTable,
         class: ObjectClass,
@@ -229,11 +230,18 @@ mod tests {
         params: ChunkParams,
         total: usize,
     ) -> Vec<(Range<usize>, u64, bool, Vec<u8>)> {
+        let most = most_chunks(class, &params, total);
         let mut chunker = StreamChunker::with_params(gear, class, reader, params).expect("window");
         let mut out = Vec::new();
         let mut offset = 0;
         while let Some(chunk) = chunker.next_chunk().expect("reads") {
             let len = chunk.bytes().len();
+            assert!(
+                out.len() < most && len > 0,
+                "chunk {} of {len} bytes at {offset} of {total}, at most {most} expected: the \
+                 chunker is not advancing",
+                out.len()
+            );
             out.push((
                 offset..offset + len,
                 chunk.index(),
@@ -260,7 +268,7 @@ mod tests {
             call: 0,
         };
         let streamed = streamed(gear, class, reader, params, data.len());
-        let in_memory: Vec<Range<usize>> = Chunks::with_params(gear, class, data, params).collect();
+        let in_memory = chunk_ranges(gear, class, data, params);
         assert_eq!(streamed.len(), in_memory.len());
         for (i, ((range, index, is_last, bytes), expected)) in
             streamed.iter().zip(&in_memory).enumerate()
@@ -301,6 +309,29 @@ mod tests {
         assert_eq!(
             format!("{chunk:?}"),
             "ChunkRef { len: 4, index: 0, is_last: true }"
+        );
+    }
+
+    #[test]
+    fn the_window_holds_two_maximum_chunks() {
+        /// Records the size of the buffer each read is given, and reports the end.
+        struct Sizes(Vec<usize>);
+        impl Read for Sizes {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                self.0.push(buf.len());
+                Ok(0)
+            }
+        }
+        let gear = table(1);
+        let params = ChunkParams::SCALED;
+        let mut chunker =
+            StreamChunker::with_params(&gear, ObjectClass::Ordinary, Sizes(Vec::new()), params)
+                .expect("window");
+        assert!(chunker.next_chunk().expect("reads").is_none());
+        assert_eq!(
+            chunker.reader.0,
+            [2 * params.max],
+            "the first read fills the window"
         );
     }
 

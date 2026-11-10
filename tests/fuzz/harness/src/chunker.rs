@@ -180,7 +180,23 @@ fn cut_both_ways(
         Chunks::scaled_for_fuzzing(gear, class, file)
     };
     let shape = chunks.object_shape();
-    let in_memory: Vec<usize> = chunks.map(|range| range.len()).collect();
+    // Every chunk but the last is at least the minimum (the maximum for the secret class), so a
+    // chunker that gives more is not advancing: fail rather than loop on.
+    let least = if class == ObjectClass::Secret {
+        scale.max
+    } else {
+        scale.min
+    };
+    let most = len / least + 1;
+    let mut in_memory = Vec::new();
+    for range in chunks {
+        assert!(
+            in_memory.len() < most && !range.is_empty(),
+            "chunk {range:?} after {} chunks, at most {most} expected",
+            in_memory.len()
+        );
+        in_memory.push(range.len());
+    }
     assert_eq!(shape.class(), class, "the shape's class");
     assert_eq!(shape.is_single(), in_memory.len() <= 1, "the shape");
 
@@ -218,6 +234,12 @@ fn cut_both_ways(
     let mut offset = 0;
     let mut streamed = Vec::new();
     while let Some(chunk) = chunker.next_chunk().expect("the reader does not fail") {
+        assert!(
+            streamed.len() < most && !chunk.bytes().is_empty(),
+            "streamed chunk {} of {} bytes, at most {most} expected",
+            streamed.len(),
+            chunk.bytes().len()
+        );
         assert_eq!(chunk.index(), streamed.len() as u64, "chunk index");
         assert_eq!(chunk.object_shape(), shape, "the stream's shape");
         let bytes = chunk.bytes();

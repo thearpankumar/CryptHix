@@ -94,10 +94,9 @@ mod tests {
     use proptest::prelude::{Just, Strategy, any, prop_assert_eq, prop_oneof, proptest};
 
     use super::*;
-    use crate::chunk::Chunks;
     use crate::limits::{MAX_CHUNK, MIN_CHUNK};
     use crate::test_data::gear_table as table;
-    use crate::test_data::pseudo_random;
+    use crate::test_data::{chunk_ranges, pseudo_random};
 
     /// The chunk lengths fastcdc cuts from `data` with `gear`'s words.
     fn fastcdc_lengths(gear: &GearTable, data: &[u8], params: &ChunkParams) -> Vec<usize> {
@@ -125,7 +124,8 @@ mod tests {
     }
 
     fn our_lengths(gear: &GearTable, data: &[u8], params: &ChunkParams) -> Vec<usize> {
-        Chunks::with_params(gear, ObjectClass::Ordinary, data, *params)
+        chunk_ranges(gear, ObjectClass::Ordinary, data, *params)
+            .into_iter()
             .map(|range| range.len())
             .collect()
     }
@@ -217,10 +217,13 @@ mod tests {
         let data = pseudo_random(4, 8 << 20);
         let mut edited = data.clone();
         edited[4 << 20] ^= 1;
-        let before: Vec<&[u8]> = Chunks::new(&gear, ObjectClass::Ordinary, &data)
+        let params = ChunkParams::FORMAT_0;
+        let before: Vec<&[u8]> = chunk_ranges(&gear, ObjectClass::Ordinary, &data, params)
+            .into_iter()
             .map(|r| &data[r])
             .collect();
-        let after: Vec<&[u8]> = Chunks::new(&gear, ObjectClass::Ordinary, &edited)
+        let after: Vec<&[u8]> = chunk_ranges(&gear, ObjectClass::Ordinary, &edited, params)
+            .into_iter()
             .map(|r| &edited[r])
             .collect();
         let changed = after.iter().filter(|chunk| !before.contains(chunk)).count();

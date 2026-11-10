@@ -10,4 +10,12 @@ exclude_re = [
     # breaks on hint 0 or on no progress never shows; after the frame a further call reads
     # nothing and returns a non-zero hint. Both checks stay as defence in depth.
     'replace == with != in stream$',
+    # cut_with: capping a remainder of exactly the maximum at the maximum changes nothing, and
+    # neither does lowering the centre to a remainder shorter than the average: a split past the
+    # end of the pairs falls back to taking them all as strict pairs, as a split at the end does.
+    'replace > with >= in cut_with$',
+    'replace < with (==|<=) in cut_with$',
+    # StreamChunker::refill: `start <= end <= window.len()` always holds, so the defensive check
+    # that fails instead of panicking never fires, whichever operator joins its halves.
+    'replace \|\| with && in StreamChunker<.*>::refill$',
 ]

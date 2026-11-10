@@ -119,7 +119,7 @@ mod tests {
 
     use super::*;
     use crate::test_data::gear_table as table;
-    use crate::test_data::pseudo_random;
+    use crate::test_data::{chunk_ranges, pseudo_random};
 
     const CLASSES: [ObjectClass; 2] = [ObjectClass::Ordinary, ObjectClass::Secret];
 
@@ -140,9 +140,8 @@ mod tests {
         for class in CLASSES {
             for len in [0, 1, params.min, params.max, params.max + 1, 6_000] {
                 let data = pseudo_random(3, len);
-                let chunks = Chunks::with_params(&gear, class, &data, params);
-                let count = chunks.clone().count();
-                let shape = chunks.object_shape();
+                let count = chunk_ranges(&gear, class, &data, params).len();
+                let shape = Chunks::with_params(&gear, class, &data, params).object_shape();
                 assert_eq!(shape.is_single(), count <= 1, "{class:?} {len}");
                 assert_eq!(shape.class(), class);
             }
@@ -170,8 +169,7 @@ mod tests {
         fn chunks_tile_the_data_within_the_size_bounds(seed in 1u8.., data in vec(any::<u8>(), 0..6_000)) {
             let gear = table(seed);
             let params = ChunkParams::SCALED;
-            let ranges: Vec<Range<usize>> =
-                Chunks::with_params(&gear, ObjectClass::Ordinary, &data, params).collect();
+            let ranges = chunk_ranges(&gear, ObjectClass::Ordinary, &data, params);
             let mut next = 0;
             for (i, range) in ranges.iter().enumerate() {
                 prop_assert_eq!(range.start, next);
@@ -197,8 +195,7 @@ mod tests {
         ) {
             let gear = table(seed);
             let params = ChunkParams::SCALED;
-            let ranges: Vec<Range<usize>> =
-                Chunks::with_params(&gear, ObjectClass::Secret, &data, params).collect();
+            let ranges = chunk_ranges(&gear, ObjectClass::Secret, &data, params);
             let expected: Vec<Range<usize>> = (0..data.len())
                 .step_by(params.max)
                 .map(|start| start..data.len().min(start + params.max))

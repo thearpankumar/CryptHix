@@ -16,7 +16,7 @@ use crypthix_core::chunk::{self, Chunks, GearTable, ObjectShape, StreamChunker};
 use crypthix_core::compress::{Compressor, Decompressor};
 use crypthix_core::error::ReadError;
 use crypthix_core::inner::{self, Comp};
-use crypthix_core::limits::MAX_CHUNK;
+use crypthix_core::limits::{MAX_CHUNK, MIN_CHUNK};
 use crypthix_core::pad;
 use crypthix_crypto::cx_aead;
 use crypthix_crypto::hash;
@@ -143,7 +143,24 @@ fn check_chunking(test: &Value) {
         "{}: the shape",
         comment(test)
     );
-    let lengths: Vec<usize> = chunks.map(|range| range.len()).collect();
+    // Every chunk but the last is at least the minimum (the maximum for the secret class), so
+    // a chunker that gives more is not advancing: fail rather than loop on.
+    let least = match class {
+        ObjectClass::Ordinary => MIN_CHUNK,
+        ObjectClass::Secret => MAX_CHUNK,
+        other => panic!("no chunk bound for {other:?}"),
+    };
+    let most = data.len() / least + 1;
+    let mut lengths = Vec::new();
+    for range in chunks {
+        assert!(
+            lengths.len() < most && !range.is_empty(),
+            "{}: chunk {range:?} after {} chunks, at most {most} expected",
+            comment(test),
+            lengths.len()
+        );
+        lengths.push(range.len());
+    }
     assert_eq!(lengths, expected, "{}: in memory", comment(test));
     if class == ObjectClass::Ordinary {
         assert_eq!(
@@ -157,6 +174,13 @@ fn check_chunking(test: &Value) {
     let mut chunker = StreamChunker::new(&gear, class, data.as_slice()).expect("a window");
     let mut streamed = Vec::new();
     while let Some(chunk) = chunker.next_chunk().expect("reads") {
+        assert!(
+            streamed.len() < most && !chunk.bytes().is_empty(),
+            "{}: streamed chunk {} of {} bytes, at most {most} expected",
+            comment(test),
+            streamed.len(),
+            chunk.bytes().len()
+        );
         assert_eq!(chunk.index(), streamed.len() as u64, "{}", comment(test));
         assert_eq!(
             chunk.is_last(),
