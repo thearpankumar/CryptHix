@@ -180,7 +180,7 @@ One `crypthixd` process serves each human user and wires together library crates
 
 ```mermaid
 flowchart LR
-    F["File bytes from an allowed app"] --> C["1. Chunk (FastCDC, secret seed)"]
+    F["File bytes from an allowed app"] --> C["1. Chunk (keyed FastCDC; fixed 1 MiB for secret files)"]
     C --> Z["2. Compress (zstd)"]
     Z --> P["3. Pad (Padmé)"]
     P --> E["4. Encrypt XChaCha20-Poly1305 with key commitment<br/>key from the object DEK, AAD = vault, object, DEK, blob ID"]
@@ -442,8 +442,8 @@ Legend: **MVP** = first public release (0.1) · **v1** = 1.0 · **Later** = afte
 
 | ID | Feature | Description | Stage |
 | --- | --- | --- | --- |
-| E1 | Content-defined chunking | FastCDC chunking with a secret per-vault gear table, so edits only rewrite changed chunks; a new version of an ordinary file reuses its unchanged chunks, with deduplication only inside one object, never across files and never for secret files ([format spec FS-55](format-spec.md#104-blobs)) | MVP |
-| E2 | Compression | zstd per chunk, skipped automatically for already-compressed data | MVP |
+| E1 | Content-defined chunking | FastCDC chunking with a secret per-vault gear table, so edits only rewrite changed chunks; a new version of an ordinary file reuses its unchanged chunks, with deduplication only inside one object, never across files and never for secret or single-chunk files ([format spec FS-55](format-spec.md#104-blobs)) | MVP |
+| E2 | Compression | zstd per chunk: every chunk of an ordinary file is trial-compressed and stored raw when zstd saves under 1/16, so already-compressed data stays raw; secret files are never compressed | MVP |
 | E3 | Size padding | Pad compressed chunks to size buckets so file sizes leak less | MVP |
 | E4 | Authenticated encryption | XChaCha20-Poly1305 with key commitment per chunk; AAD binds vault, object and DEK, and the signed manifest binds order, count and version ([format spec](format-spec.md)) | MVP |
 | E5 | Integrity and signatures | BLAKE3 Merkle trees over each object and the path index; manifests signed by the writing device; a signed vault root | MVP |
@@ -758,8 +758,8 @@ A running program always sees plaintext in its own memory. CryptHix guarantees t
 | Encoding | Deterministic CBOR (RFC 8949) after a fixed preamble | Own strict codec in `crypthix-types`: no CBOR crate checks canonical form on decode |
 | Secret sharing | Shamir | `vsss-rs` |
 | Erasure coding | Reed-Solomon | `reed-solomon-simd` |
-| Compression | zstd | `zstd` |
-| Chunking | FastCDC | `fastcdc` |
+| Compression | zstd (libzstd 1.5.7, bundled) | `zstd-safe`; the `zstd` crate is banned |
+| Chunking | FastCDC 2020 with a keyed gear table | Own loop in `crypthix-core`; `fastcdc` 5.0.0 only as a test oracle |
 | Capability tokens | Biscuit | `biscuit-auth` |
 | Filesystem | FUSE | `fuser` |
 | eBPF / LSM | BPF-LSM programs | `aya` |
