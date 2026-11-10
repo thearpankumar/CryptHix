@@ -3,6 +3,7 @@
 //!
 //! This keeps the fuzz properties in plain `cargo test`; `cargo xtask fuzz` searches further.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -22,11 +23,32 @@ fn target(name: &str) -> Target {
     *run
 }
 
+/// The fewest vector seeds each target gets: the current counts. The vectors are generated
+/// deterministically, so a lower count means a generator change stopped feeding a target.
+/// Raise a count when vectors are added. `cbor_structured` gets no seeds of its own: every seed
+/// drives it.
+const MIN_SEEDS: [(&str, usize); 12] = [
+    ("preamble", 54),
+    ("cbor_document", 119),
+    ("cbor_differential", 119),
+    ("store_key", 6),
+    ("config_toml", 5),
+    ("id_text", 9),
+    ("cx_open", 63),
+    ("verifying_key", 3),
+    ("inner_plaintext", 19),
+    ("decompress", 37),
+    ("data_blob_open", 92),
+    ("chunker", 21),
+];
+
 #[test]
 fn every_vector_input_and_its_bit_flips() {
     let mut runs = 0usize;
+    let mut per_target: BTreeMap<&str, usize> = BTreeMap::new();
     for seed in seeds() {
         for name in seed.target.fuzz_targets() {
+            *per_target.entry(name).or_default() += 1;
             let run = target(name);
             run(&seed.bytes);
             runs += 1;
@@ -43,6 +65,25 @@ fn every_vector_input_and_its_bit_flips() {
         target("cbor_structured")(&seed.bytes);
     }
     assert!(runs > 10_000, "only {runs} runs");
+    for (name, minimum) in MIN_SEEDS {
+        let count = per_target.get(name).copied().unwrap_or(0);
+        assert!(
+            count >= minimum,
+            "{name} got {count} seeds, fewer than the {minimum} it had"
+        );
+    }
+    let unlisted: Vec<&str> = TARGETS
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| {
+            *name != "cbor_structured" && !MIN_SEEDS.iter().any(|(known, _)| known == name)
+        })
+        .collect();
+    assert_eq!(
+        unlisted,
+        Vec::<&str>::new(),
+        "targets without a seed minimum"
+    );
 }
 
 #[test]

@@ -29,7 +29,11 @@
 //! Every file is cut for both classes. For an ordinary object, the chunks [`Chunks`] cuts in
 //! memory must be the chunks [`StreamChunker`] cuts through the reader, and the chunks
 //! `fastcdc::v2020::cut_gear` 5.0.0 cuts with the same gear table, which this file rebuilds
-//! from `chunker_seed` and the vault ID with the crypto crate's KDF and XOF. For a secret-class
+//! from `chunker_seed` and the vault ID with the crypto crate's KDF and XOF. fastcdc takes two
+//! bytes per step with a shifted table and shifted masks, as `crypthix-core` does, so a mistake
+//! the two share would pass; at the scaled-down sizes the chunks must also be those of the
+//! FS-52 rule taken literally, one byte per step, as written out here. (The vector generator
+//! has such a chunker too, but only at format 0 sizes and only as a dev-dependency here.) For a secret-class
 //! object, memory and the reader must both give chunks of the maximum and a shorter last one
 //! (FS-52).
 
@@ -163,6 +167,46 @@ fn fastcdc_lengths(words: &[u64], data: &[u8], scale: Scale) -> Vec<usize> {
     lengths
 }
 
+/// The chunk lengths of `data` under the cut rule of FS-52 read literally, one byte per step:
+/// the second oracle, beside fastcdc, which steps two bytes at a time with a shifted table and
+/// shifted masks as `crypthix-core` does. Written from the rule's text, not from either.
+fn one_byte_lengths(words: &[u64], data: &[u8], scale: Scale) -> Vec<usize> {
+    let mut lengths = Vec::new();
+    let mut rest = data;
+    while !rest.is_empty() {
+        let n = rest.len();
+        // 1. No longer than the minimum: the chunk is all of it.
+        let len = if n <= scale.min {
+            n
+        } else {
+            // 2. end = min(n, max), center = min(n, avg), h = 0.
+            let end = n.min(scale.max);
+            let center = n.min(scale.avg);
+            let mut h: u64 = 0;
+            // 4. If no position matches, the chunk is the first `end` bytes.
+            let mut cut = end;
+            // 3. Positions 2⌊min/2⌋ up to but not including 2⌊end/2⌋; the strict mask while
+            // i < 2⌊center/2⌋, the loose one after; a match cuts just before byte i.
+            for i in 2 * (scale.min / 2)..2 * (end / 2) {
+                h = (h << 1).wrapping_add(words[usize::from(rest[i])]);
+                let mask = if i < 2 * (center / 2) {
+                    scale.mask_s
+                } else {
+                    scale.mask_l
+                };
+                if h & mask == 0 {
+                    cut = i;
+                    break;
+                }
+            }
+            cut
+        };
+        lengths.push(len);
+        rest = &rest[len..];
+    }
+    lengths
+}
+
 /// Cuts `file` for an object of `class` at `scale` in memory and through a reader, checks that
 /// the two agree and that the chunks cover the file within the size bounds, and returns the
 /// lengths.
@@ -198,7 +242,11 @@ fn cut_both_ways(
         in_memory.push(range.len());
     }
     assert_eq!(shape.class(), class, "the shape's class");
-    assert_eq!(shape.is_single(), in_memory.len() <= 1, "the shape");
+    assert_eq!(
+        (shape.is_empty(), shape.is_single()),
+        (in_memory.is_empty(), in_memory.len() == 1),
+        "the shape"
+    );
 
     assert_eq!(
         in_memory.iter().sum::<usize>(),
@@ -256,7 +304,7 @@ fn cut_both_ways(
 }
 
 /// Cuts `file` at `scale` for both classes, in memory and through a reader, and the ordinary
-/// class with fastcdc too.
+/// class with fastcdc too, and at the scaled-down sizes with the one-byte rule of FS-52.
 fn check(gear: &GearTable, words: &[u64], file: &[u8], sizes: [u8; 4], scale: Scale) {
     let in_memory = cut_both_ways(gear, ObjectClass::Ordinary, file, sizes, scale);
     let secret = cut_both_ways(gear, ObjectClass::Secret, file, sizes, scale);
@@ -273,6 +321,13 @@ fn check(gear: &GearTable, words: &[u64], file: &[u8], sizes: [u8; 4], scale: Sc
         in_memory,
         "fastcdc 5.0.0 cuts other chunks with the same gear table"
     );
+    if !scale.full {
+        assert_eq!(
+            one_byte_lengths(words, file, scale),
+            in_memory,
+            "the FS-52 rule taken one byte per step cuts other chunks"
+        );
+    }
 }
 
 /// Cuts the file `data` describes in memory, through a reader, and with fastcdc, then the
@@ -280,7 +335,7 @@ fn check(gear: &GearTable, words: &[u64], file: &[u8], sizes: [u8; 4], scale: Sc
 ///
 /// # Panics
 ///
-/// If the three disagree, a chunk other than the last is outside the minimum to the maximum,
+/// If the chunkers disagree, a chunk other than the last is outside the minimum to the maximum,
 /// the stream's chunk indices, `is_last` or shape are wrong, the chunks do not rebuild the file,
 /// or a secret-class object is not cut at fixed steps of the maximum.
 pub fn chunker(data: &[u8]) {

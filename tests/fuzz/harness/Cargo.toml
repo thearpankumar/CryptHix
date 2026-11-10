@@ -10,7 +10,7 @@ publish.workspace = true
 
 [dependencies]
 arbitrary = "1.5.0"
-crypthix-core = { version = "0.0.0", path = "../../../crates/engine/core" }
+crypthix-core = { version = "0.0.0", path = "../../../crates/engine/core", features = ["vectors"] }
 crypthix-crypto = { path = "../../../crates/foundation/crypto", features = ["vectors"] }
 crypthix-types = { version = "0.0.0", path = "../../../crates/foundation/types" }
 curve25519-dalek = { version = "5.0.0", default-features = false }

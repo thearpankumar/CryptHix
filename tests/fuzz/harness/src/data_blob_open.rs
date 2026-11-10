@@ -9,10 +9,10 @@
 use std::cell::RefCell;
 
 use crypthix_core::blob::{
-    BlobContext, ChunkEntry, ChunkKeys, ObjectClass, ObjectOpener, ObjectSealer, data_blob_aad,
+    self, BlobContext, ChunkEntry, ChunkKeys, ObjectClass, ObjectOpener, ObjectSealer,
 };
-use crypthix_core::chunk::{Chunks, GearTable, ObjectShape};
-use crypthix_core::compress::{Compressor, Decompressor};
+use crypthix_core::chunk::ChunkRef;
+use crypthix_core::compress::{self, Compressor, Decompressor};
 use crypthix_core::error::ReadError;
 use crypthix_core::inner::{self, Comp};
 use crypthix_core::limits::{MAX_CHUNK, MAX_PLAIN_LEN};
@@ -25,37 +25,6 @@ use crypthix_types::id::{BlobId, DekId, ObjectId, VaultId};
 thread_local! {
     static COMPRESSOR: RefCell<Compressor> = RefCell::new(Compressor::new().expect("a zstd context"));
     static DECOMPRESSOR: RefCell<Decompressor> = RefCell::new(Decompressor::new());
-    /// The shapes the chunker gives an ordinary and a secret object of two or more chunks.
-    static MULTIPLE: [ObjectShape; 2] = shapes(MAX_CHUNK + 1);
-    /// The shapes the chunker gives an ordinary and a secret object of one chunk.
-    static SINGLE: [ObjectShape; 2] = shapes(1);
-}
-
-/// The shapes the chunker gives `len` zero bytes in an ordinary and in a secret object; only
-/// the chunker makes shapes.
-fn shapes(len: usize) -> [ObjectShape; 2] {
-    let seed = KdfKey::from_bytes([1; 32]).expect("non-zero key");
-    let vault_id = VaultId::try_from_bytes([1; 16]).expect("non-zero ID");
-    let gear = GearTable::derive(&seed, &vault_id).expect("derives");
-    let zeros = vec![0; len];
-    [ObjectClass::Ordinary, ObjectClass::Secret]
-        .map(|class| Chunks::new(&gear, class, &zeros).object_shape())
-}
-
-/// The shape of an object of `class` and `count` chunks.
-fn shape_of(class: ObjectClass, count: u64) -> ObjectShape {
-    let index = usize::from(class == ObjectClass::Secret);
-    let shape = if count == 1 {
-        SINGLE.with(|shapes| shapes[index])
-    } else {
-        MULTIPLE.with(|shapes| shapes[index])
-    };
-    assert_eq!(
-        (shape.class(), shape.is_single()),
-        (class, count == 1),
-        "the chunker's shape of {count} chunks"
-    );
-    shape
 }
 
 /// The fixed nonce the target seals inner plaintexts with; never all zero (FS-03).
@@ -91,9 +60,9 @@ fn open(
 ///
 /// If arbitrary bytes open or fail with anything but `Truncated`, `ZeroValue` or `Decrypt` at
 /// the right lengths, `plain_len` over 1 MiB is not refused first, a sealed inner plaintext
-/// gives another result than its stages give alone (the payload against `plain_len` before
-/// the blob ID among them), or a written chunk does not open to itself or opens with a byte
-/// flipped.
+/// gives another result than its stages give alone (the store-raw rule before the frame, and
+/// the payload against `plain_len`, one more or one less, before the blob ID among them), or a
+/// written chunk does not open to itself or opens with a byte flipped.
 pub fn data_blob_open(data: &[u8]) {
     let context = BlobContext::new(
         VaultId::try_from_bytes([1; 16]).expect("non-zero ID"),
@@ -128,11 +97,11 @@ pub fn data_blob_open(data: &[u8]) {
 }
 
 /// `data` as an inner plaintext sealed under its blob's own key and AAD: the result must be
-/// what the inner-plaintext check, the class rule, the decompressor and the blob-ID check say
-/// on their own (FS-93 order).
+/// what the inner-plaintext check, the class rule, the store-raw rule, the decompressor and the
+/// blob-ID check say on their own (FS-93 order).
 fn sealed_inner(keys: &ChunkKeys, data: &[u8]) {
     let seal = |blob_id: &BlobId| {
-        let aad = data_blob_aad(keys.context(), blob_id);
+        let aad = blob::data_blob_aad(keys.context(), blob_id);
         cx_aead::seal_with_nonce(keys.chunk_key(), &aad, data, &NONCE)
     };
     let view = match inner::decode_inner(data) {
@@ -165,7 +134,12 @@ fn sealed_inner(keys: &ChunkKeys, data: &[u8]) {
                 ReadError::Format(error) => error,
                 other => panic!("decompression gave {other:?}"),
             });
-            (decoded, declared)
+            // The store-raw rule comes before the frame (FS-53, FS-56).
+            if compress::keep_compressed(frame.len() as u64, declared) {
+                (decoded, declared)
+            } else {
+                (Err(FormatError::Decompress), declared)
+            }
         }
         other => panic!("decode_inner gave an unknown {other:?}"),
     };
@@ -198,6 +172,14 @@ fn sealed_inner(keys: &ChunkKeys, data: &[u8]) {
                 Err(FormatError::Binding),
                 "a chunk that does not MAC to its blob ID"
             );
+            if let Some(shorter_len) = plain_len.checked_sub(1) {
+                let shorter = ChunkEntry::new(right, shorter_len);
+                assert_eq!(
+                    open(keys, keyed, &shorter, &seal(&right)),
+                    Err(FormatError::Decompress),
+                    "a chunk longer than plain_len"
+                );
+            }
             let longer = ChunkEntry::new(right, plain_len + 1);
             assert_eq!(
                 open(keys, keyed, &longer, &seal(&right)),
@@ -232,9 +214,11 @@ fn round_trip(keys: &ChunkKeys, data: &[u8]) {
         (ObjectClass::Ordinary, 1),
         (ObjectClass::Secret, 3),
     ] {
-        let writer = ObjectSealer::new(keys, shape_of(class, count));
+        // The chunk as chunk 0 of an object of `count` chunks, the last only if there is one.
+        let first = ChunkRef::from_parts(chunk, 0, count == 1, class);
+        let mut writer = ObjectSealer::new(keys, first.object_shape());
         let sealed = COMPRESSOR
-            .with_borrow_mut(|compressor| writer.seal(compressor, chunk))
+            .with_borrow_mut(|compressor| writer.seal(compressor, first))
             .expect("seals");
         let opened = open(keys, (class, count), sealed.entry(), sealed.sealed());
         assert_eq!(
